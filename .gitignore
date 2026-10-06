@@ -1,0 +1,4 @@
+# Build outputs
+/build/
+/build_ps4/
+/ffmpeg_ps4/

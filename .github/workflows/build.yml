@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach packages to releases
+
+jobs:
+  ps4:
+    name: PS4 package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # FFmpeg takes most of the build time and only changes with its script
+      # or the build image.
+      - name: Cache FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg_ps4/install
+          key: ffmpeg-ps4-${{ hashFiles('tools/build_ffmpeg_ps4.sh', 'tools/docker/Dockerfile') }}
+
+      - name: Build
+        run: ./build.sh ps4
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: stremio-tv-ps4
+          path: build_ps4/stremio-tv-*.pkg
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build_ps4/stremio-tv-*.pkg
+
+  desktop:
+    name: Desktop build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake g++ pkg-config libsdl2-dev libgles-dev \
+            libfreetype-dev libcurl4-openssl-dev libavformat-dev libavcodec-dev libswscale-dev \
+            libswresample-dev libavutil-dev
+      - name: Build
+        run: ./build.sh desktop
+      - name: Build with developer tools
+        run: |
+          rm -rf build
+          ./build.sh desktop --dev

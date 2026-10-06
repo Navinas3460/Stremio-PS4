@@ -1,0 +1,872 @@
+// PS4 hardware video backend: sceAvPlayer (MP4 / H.264) + sceAudioOut.
+// Optional: FFmpeg (video_ffmpeg.cpp) is the default; this one is chosen in
+// Settings. What it relies on (verified on FW 11.02):
+//   - AddSource(https URL) fails, so AvPlayer reads the stream through its
+//     file-replacement callbacks, answered with HTTP Range requests that run
+//     on our own 1 MiB-stack thread (libSceHttp fails with
+//     INSUFFICIENT_STACKSIZE on AvPlayer's threads).
+//   - Decoded video is NV12 from GetVideoDataEx (pitch = align64(width),
+//     height = align16, UV plane right after the aligned height). There is no
+//     YUV shader on Piglet, so frames are converted to RGBA on a CPU thread.
+//   - Video frames only flow while audio is pulled at real-time pace, so an
+//     audio thread feeds sceAudioOutOutput (which blocks for one grain).
+//   - With autoStart the first event is PLAY (no READY); STOP at the end.
+#include "video_player.h"
+
+#include "nv12.h"
+
+#include "../net/http.h"
+#include "../platform/platform.h"
+#include "../platform/threads.h"
+#include "avplayer_api.h"
+
+#include <orbis/AudioOut.h>
+#include <orbis/Http.h>
+#include <orbis/Sysmodule.h>
+#include <orbis/libkernel.h>
+
+#include <unistd.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <vector>
+
+// The H.264 decoder's pixel reconstruction thread (libSceVdecSavc) calls into
+// libSceGnmDriver, which every game has loaded but this Piglet app didn't: it
+// crashed with PRX_NOT_RESOLVED_FUNCTION. init_once() loads it, and VideoOut
+// (this reference keeps VideoOut imported).
+extern "C" void sceVideoOutGetResolutionStatus();
+__attribute__((used)) void *const g_force_imports[] = { (void *)&sceVideoOutGetResolutionStatus };
+
+extern "C" int32_t avp_http_set_auto_redirect(int32_t id, int32_t enable) __asm__("sceHttpSetAutoRedirect");
+extern "C" int32_t avp_http_set_recv_timeout(int32_t id, uint32_t usec) __asm__("sceHttpSetRecvTimeOut");
+
+namespace {
+
+const char *USER_AGENT = "StremioTV/0.1 (PlayStation 4)";
+const uint64_t BLOCK = 1024 * 1024;
+const size_t MAX_BLOCKS = 8;             // 8 MiB read cache
+const size_t THREAD_STACK = 1024 * 1024;
+// RGBA frame buffers live in direct memory (the libc heap size is unknown
+// on PS4 and the frames are big). Larger videos are refused.
+const int MAX_FRAME_W = 1920, MAX_FRAME_H = 1088;
+const size_t FRAME_BYTES = (size_t)MAX_FRAME_W * MAX_FRAME_H * 4;
+const size_t IO_STACK = 1024 * 1024;
+const uint32_t AUDIO_GRAIN = 1024;       // frames per sceAudioOutOutput
+const double OPEN_TIMEOUT = 45.0;        // seconds without a first PLAY event
+
+uint32_t align_up(uint32_t v, uint32_t a) {
+	return (v + a - 1) / a * a;
+}
+
+std::string hex(int32_t code) {
+	char buf[16];
+	snprintf(buf, sizeof(buf), "0x%08X", (uint32_t)code);
+	return buf;
+}
+
+// --- AvPlayer memory -------------------------------------------------------
+// Decoder output ("texture") memory must be direct memory; CPU-cached Onion
+// lets our conversion thread read it quickly.
+
+struct DirectBlock {
+	off_t phys;
+	size_t size;
+};
+std::map<uintptr_t, DirectBlock> g_direct;
+threads::Mutex g_direct_mutex;
+
+void *direct_alloc(uint32_t alignment, uint32_t size);
+
+// General decoder memory. The libc heap shares the app's flexible memory with
+// Piglet and may be small, so large blocks come from direct memory (plenty
+// is free), and a failed heap allocation falls back to it as well. Returning
+// NULL here likely crashes AvPlayer.
+const uint32_t DIRECT_THRESHOLD = 256 * 1024;
+
+// (The callbacks run on AvPlayer threads with tiny stacks: no logging here.)
+void *av_alloc(void *, uint32_t alignment, uint32_t size) {
+	void *p = nullptr;
+	if (size < DIRECT_THRESHOLD &&
+			posix_memalign(&p, std::max<size_t>(alignment, sizeof(void *)), size) == 0 && p) {
+		return p;
+	}
+	return direct_alloc(alignment, size);
+}
+
+bool direct_free(void *p);
+
+void av_free(void *, void *p) {
+	if (p && !direct_free(p)) free(p);
+}
+
+void *av_alloc_texture(void *, uint32_t alignment, uint32_t size) {
+	return direct_alloc(alignment, size);
+}
+
+void av_free_texture(void *, void *p) {
+	direct_free(p);
+}
+
+void *direct_alloc(uint32_t alignment, uint32_t size) {
+	const size_t align = std::max<size_t>(alignment, 0x10000);
+	const size_t sz = align_up(size, 0x10000);
+	off_t phys = 0;
+	int rc = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), sz, align, ORBIS_KERNEL_WB_ONION, &phys);
+	if (rc != 0) return nullptr;
+	void *addr = nullptr;
+	rc = sceKernelMapDirectMemory(&addr, sz, ORBIS_KERNEL_PROT_CPU_RW | ORBIS_KERNEL_PROT_GPU_RW, 0, phys, align);
+	if (rc != 0) {
+		sceKernelReleaseDirectMemory(phys, sz);
+		return nullptr;
+	}
+	threads::Lock lock(g_direct_mutex);
+	g_direct[(uintptr_t)addr] = DirectBlock{ phys, sz };
+	return addr;
+}
+
+bool direct_free(void *p) {
+	threads::Lock lock(g_direct_mutex);
+	auto it = g_direct.find((uintptr_t)p);
+	if (it == g_direct.end()) return false;
+	sceKernelMunmap(p, it->second.size);
+	sceKernelReleaseDirectMemory(it->second.phys, it->second.size);
+	g_direct.erase(it);
+	return true;
+}
+
+// --- HTTP-backed file -------------------------------------------------------
+
+struct HttpStream {
+	std::string url;
+	std::vector<std::string> headers;
+	std::atomic<bool> abort{ false };
+
+	// Owned by the I/O thread.
+	int tpl = -1, conn = -1;
+	uint64_t size = 0;
+	struct Block {
+		uint64_t start;
+		std::vector<uint8_t> data;
+		uint64_t used;
+	};
+	std::vector<Block> cache;
+	uint64_t clock = 0;
+	uint64_t prefetch = UINT64_MAX; // next block to fetch while idle
+	int requests = 0;
+	uint64_t bytes = 0;
+
+	threads::Mutex error_mutex;
+	std::string error; // user-facing reason the stream can't be read
+	void fail(const std::string &message) {
+		threads::Lock lock(error_mutex);
+		if (error.empty()) error = message;
+		platform::log("avplayer: stream error: %s", message.c_str());
+	}
+	std::string get_error() {
+		threads::Lock lock(error_mutex);
+		return error;
+	}
+};
+
+uint64_t content_range_total(const char *headers, size_t len) {
+	std::string h(headers, len);
+	for (char &c : h) c = (char)tolower((unsigned char)c);
+	const size_t at = h.find("content-range:");
+	if (at == std::string::npos) return 0;
+	const size_t slash = h.find('/', at);
+	const size_t eol = h.find('\n', at);
+	if (slash == std::string::npos || (eol != std::string::npos && slash > eol)) return 0;
+	return strtoull(h.c_str() + slash + 1, nullptr, 10);
+}
+
+std::vector<uint8_t> &read_chunk() {
+	static std::vector<uint8_t> chunk(64 * 1024); // only the I/O thread uses it
+	return chunk;
+}
+
+// GET bytes [start, end] into `out`. Returns the HTTP status, or < 0 on error.
+int http_range(HttpStream &s, uint64_t start, uint64_t end, std::vector<uint8_t> &out, uint64_t *total) {
+	out.clear();
+	const int req = sceHttpCreateRequestWithURL(s.conn, ORBIS_METHOD_GET, s.url.c_str(), 0);
+	if (req < 0) return req;
+	for (const std::string &h : s.headers) {
+		const size_t colon = h.find(':');
+		if (colon == std::string::npos) continue;
+		std::string value = h.substr(colon + 1);
+		value.erase(0, value.find_first_not_of(' '));
+		sceHttpAddRequestHeader(req, h.substr(0, colon).c_str(), value.c_str(), 0);
+	}
+	char range[64];
+	snprintf(range, sizeof(range), "bytes=%llu-%llu", (unsigned long long)start, (unsigned long long)end);
+	sceHttpAddRequestHeader(req, "Range", range, 0);
+	int rc = sceHttpSendRequest(req, nullptr, 0);
+	int32_t status = 0;
+	if (rc >= 0) rc = sceHttpGetStatusCode(req, &status);
+	if (rc < 0) {
+		sceHttpDeleteRequest(req);
+		return rc;
+	}
+	if (total) {
+		*total = 0;
+		char *headers = nullptr;
+		size_t headers_len = 0;
+		if (sceHttpGetAllResponseHeaders(req, &headers, &headers_len) >= 0 && headers) {
+			*total = content_range_total(headers, headers_len);
+		}
+		if (*total == 0 && status == 200) {
+			int32_t type = 0;
+			size_t length = 0;
+			if (sceHttpGetResponseContentLength(req, &type, &length) >= 0) *total = length;
+		}
+	}
+	if (status == 206 || (status == 200 && start == 0)) {
+		std::vector<uint8_t> &chunk = read_chunk();
+		const uint64_t want = end - start + 1;
+		out.reserve((size_t)want);
+		while (out.size() < want && !s.abort) {
+			const int n = sceHttpReadData(req, chunk.data(), (uint32_t)chunk.size());
+			if (n < 0) {
+				rc = n;
+				break;
+			}
+			if (n == 0) break;
+			const size_t take = std::min<size_t>((size_t)n, (size_t)(want - out.size()));
+			out.insert(out.end(), chunk.data(), chunk.data() + take);
+		}
+	}
+	sceHttpDeleteRequest(req);
+	s.requests++;
+	s.bytes += out.size();
+	return rc < 0 ? rc : status;
+}
+
+HttpStream::Block *find_block(HttpStream &s, uint64_t block_start) {
+	for (auto &b : s.cache) {
+		if (b.start == block_start) {
+			b.used = ++s.clock;
+			return &b;
+		}
+	}
+	return nullptr;
+}
+
+HttpStream::Block *fetch_block(HttpStream &s, uint64_t block_start) {
+	if (HttpStream::Block *b = find_block(s, block_start)) return b;
+	if (s.abort || block_start >= s.size) return nullptr;
+	HttpStream::Block b{ block_start, {}, ++s.clock };
+	const uint64_t end = std::min(block_start + BLOCK, s.size) - 1;
+	int status = 0;
+	for (int attempt = 0; attempt < 3 && b.data.empty() && !s.abort; attempt++) {
+		status = http_range(s, block_start, end, b.data, nullptr);
+		if (status == 200 && block_start > 0) break; // Range ignored: retrying won't help
+	}
+	if (b.data.empty()) {
+		if (status == 200) {
+			s.fail("This server doesn't support seeking in the video");
+		} else if (!s.abort) {
+			platform::log("avplayer: block @%llu failed (%s)", (unsigned long long)block_start,
+					status < 0 ? hex(status).c_str() : std::to_string(status).c_str());
+		}
+		return nullptr;
+	}
+	if (s.cache.size() >= MAX_BLOCKS) {
+		size_t oldest = 0;
+		for (size_t i = 1; i < s.cache.size(); i++) {
+			if (s.cache[i].used < s.cache[oldest].used) oldest = i;
+		}
+		s.cache.erase(s.cache.begin() + oldest);
+	}
+	s.cache.push_back(std::move(b));
+	return &s.cache.back();
+}
+
+int do_open(HttpStream &s) {
+	s.tpl = sceHttpCreateTemplate(http::ps4_context(), USER_AGENT, ORBIS_HTTP_VERSION_1_1, 1);
+	if (s.tpl < 0) {
+		s.fail("Network error " + hex(s.tpl));
+		return -1;
+	}
+	avp_http_set_auto_redirect(s.tpl, 1);
+	sceHttpSetConnectTimeOut(s.tpl, 15 * 1000 * 1000);
+	avp_http_set_recv_timeout(s.tpl, 30 * 1000 * 1000);
+	s.conn = sceHttpCreateConnectionWithURL(s.tpl, s.url.c_str(), 1);
+	if (s.conn < 0) {
+		s.fail("Network error " + hex(s.conn));
+		return -1;
+	}
+	std::vector<uint8_t> first;
+	uint64_t total = 0;
+	const int status = http_range(s, 0, 0, first, &total);
+	platform::log("avplayer: open status %d, size %llu", status, (unsigned long long)total);
+	if (status < 0) {
+		s.fail((uint32_t)status == 0x80431075 ? "Secure connection failed (TLS)" : "Network error " + hex(status));
+		return -1;
+	}
+	if (status >= 400 || total == 0) {
+		s.fail("The server answered HTTP " + std::to_string(status));
+		return -1;
+	}
+	s.size = total;
+	// Look at the container: AvPlayer only plays MP4 (and HLS via AddSourceEx).
+	HttpStream::Block *b = fetch_block(s, 0);
+	if (!b || b->data.size() < 12) {
+		s.fail("Couldn't read the video");
+		return -1;
+	}
+	const uint8_t *d = b->data.data();
+	if (d[0] == 0x1A && d[1] == 0x45 && d[2] == 0xDF && d[3] == 0xA3) {
+		s.fail("MKV videos can't be played on PS4 yet - pick an MP4 stream");
+		return -1;
+	}
+	if (memcmp(d, "#EXTM3U", 7) == 0) {
+		s.fail("HLS streams aren't supported yet");
+		return -1;
+	}
+	if (memcmp(d + 4, "ftyp", 4) != 0) {
+		platform::log("avplayer: no 'ftyp' at the start; trying anyway");
+	}
+	return 0;
+}
+
+int do_read(HttpStream &s, uint8_t *buffer, uint64_t position, uint32_t length) {
+	if (position >= s.size) return 0;
+	uint32_t done = 0;
+	while (done < length && position + done < s.size) {
+		const uint64_t pos = position + done;
+		HttpStream::Block *b = fetch_block(s, pos / BLOCK * BLOCK);
+		if (!b) return done > 0 ? (int)done : -1;
+		const uint64_t off = pos - b->start;
+		if (off >= b->data.size()) break;
+		const uint32_t n = (uint32_t)std::min<uint64_t>(length - done, b->data.size() - off);
+		memcpy(buffer + done, b->data.data() + off, n);
+		done += n;
+	}
+	// Read ahead: AvPlayer reads mostly sequentially.
+	const uint64_t next = (position + done) / BLOCK * BLOCK + BLOCK;
+	s.prefetch = next < s.size ? next : UINT64_MAX;
+	return (int)done;
+}
+
+int do_close(HttpStream &s) {
+	platform::log("avplayer: stream closed after %d requests, %llu bytes", s.requests, (unsigned long long)s.bytes);
+	if (s.conn >= 0) sceHttpDeleteConnection(s.conn);
+	if (s.tpl >= 0) sceHttpDeleteTemplate(s.tpl);
+	s.conn = s.tpl = -1;
+	s.cache.clear();
+	s.prefetch = UINT64_MAX;
+	return 0;
+}
+
+// --- I/O thread ---------------------------------------------------------------
+// AvPlayer calls the file callbacks on its own threads; each call is handed
+// to this thread and waited for. While idle it prefetches the next block.
+
+enum JobKind { JOB_OPEN, JOB_READ, JOB_CLOSE };
+struct Job {
+	JobKind kind;
+	HttpStream *stream;
+	uint8_t *buffer;
+	uint64_t position;
+	uint32_t length;
+	int result;
+	bool done;
+};
+
+threads::Mutex g_io_mutex;      // guards the fields below
+threads::CondVar g_io_wake, g_io_done;
+Job *g_job = nullptr;
+HttpStream *g_prefetch_stream = nullptr;
+threads::Mutex g_call_mutex;    // one callback at a time
+bool g_io_started = false;
+
+void *io_thread(void *) {
+	g_io_mutex.lock();
+	for (;;) {
+		if (Job *job = g_job) {
+			g_job = nullptr;
+			g_io_mutex.unlock();
+			switch (job->kind) {
+				case JOB_OPEN: job->result = do_open(*job->stream); break;
+				case JOB_READ: job->result = do_read(*job->stream, job->buffer, job->position, job->length); break;
+				case JOB_CLOSE: job->result = do_close(*job->stream); break;
+			}
+			g_io_mutex.lock();
+			g_prefetch_stream = job->kind == JOB_READ ? job->stream : nullptr;
+			job->done = true;
+			g_io_done.notify_all();
+			continue;
+		}
+		HttpStream *s = g_prefetch_stream;
+		if (s && s->prefetch != UINT64_MAX && !s->abort) {
+			const uint64_t block = s->prefetch;
+			s->prefetch = UINT64_MAX;
+			g_io_mutex.unlock();
+			if (!find_block(*s, block)) fetch_block(*s, block);
+			g_io_mutex.lock();
+			continue;
+		}
+		g_io_wake.wait(g_io_mutex);
+	}
+	return nullptr;
+}
+
+int run_job(Job job) {
+	threads::Lock call(g_call_mutex);
+	threads::Lock lock(g_io_mutex);
+	g_job = &job;
+	g_io_wake.notify_one();
+	while (!job.done) g_io_done.wait(g_io_mutex);
+	return job.result;
+}
+
+int fr_open(void *p, const char *) {
+	return run_job(Job{ JOB_OPEN, (HttpStream *)p, nullptr, 0, 0, -1, false });
+}
+
+int fr_read(void *p, uint8_t *buffer, uint64_t position, uint32_t length) {
+	return run_job(Job{ JOB_READ, (HttpStream *)p, buffer, position, length, -1, false });
+}
+
+int fr_close(void *p) {
+	return run_job(Job{ JOB_CLOSE, (HttpStream *)p, nullptr, 0, 0, -1, false });
+}
+
+uint64_t fr_size(void *p) {
+	return ((HttpStream *)p)->size;
+}
+
+// sceAudioOutInit crashes unless its module was loaded first.
+bool g_audio_ok = false;
+
+void init_audio() {
+	sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_AUDIOOUT);
+	const int rc = sceAudioOutInit();
+	g_audio_ok = rc == 0 || (uint32_t)rc == 0x8026000E; // already initialised
+	if (!g_audio_ok) platform::log("avplayer: sceAudioOutInit failed 0x%08X", rc);
+}
+
+bool init_once() {
+	static bool done = false, ok = false;
+	if (done) return ok;
+	done = true;
+	// Libraries the H.264 decoder needs (see g_force_imports). In this app the
+	// loader loads nothing by itself, so load them explicitly.
+	platform::log("avplayer: load VideoOut module -> 0x%08X",
+			sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_VIDEO_OUT));
+	// libSceVdecSavc imports only from libkernel, libc and libSceGnmDriver
+	// (checked in its import table): GnmDriver is the one this app lacks.
+	platform::load_gnm_driver();
+	const int rc = sceSysmoduleLoadModule(ORBIS_SYSMODULE_AV_PLAYER);
+	platform::log("avplayer: load module -> 0x%08X", rc);
+	init_audio();
+	g_io_started = threads::start(io_thread, nullptr, IO_STACK, "stremio_video_io");
+	ok = rc == 0 && g_io_started;
+	return ok;
+}
+
+// --- Player -----------------------------------------------------------------------
+
+class AvPlayerVideo : public VideoPlayer {
+public:
+	~AvPlayerVideo() override { close(); }
+
+	void open(const std::string &url, const std::vector<std::string> &headers, double start) override {
+		close();
+		error_.clear();
+		state_ = OPENING;
+		open_time_ = platform::now();
+		start_ms_ = (uint64_t)(std::max(0.0, start) * 1000);
+		if (!init_once()) {
+			fail("The PS4 video player couldn't start");
+			return;
+		}
+		stream_ = new HttpStream();
+		stream_->url = url;
+		stream_->headers = headers;
+
+		SceAvPlayerInitData init;
+		memset(&init, 0, sizeof(init));
+		init.memoryReplacement.allocate = av_alloc;
+		init.memoryReplacement.deallocate = av_free;
+		init.memoryReplacement.allocateTexture = av_alloc_texture;
+		init.memoryReplacement.deallocateTexture = av_free_texture;
+		init.fileReplacement.objectPointer = stream_;
+		init.fileReplacement.open = fr_open;
+		init.fileReplacement.close = fr_close;
+		init.fileReplacement.readOffset = fr_read;
+		init.fileReplacement.size = fr_size;
+		init.eventReplacement.objectPointer = this;
+		init.eventReplacement.eventCallback = on_event;
+		init.basePriority = 700;
+		init.numOutputVideoFrameBuffers = 2;
+		init.autoStart = 1;
+		init.defaultLanguage = "eng";
+		handle_ = sceAvPlayerInit(&init);
+		if (!handle_) {
+			fail("The PS4 video player couldn't start");
+			return;
+		}
+		// The name only reaches fr_open (which ignores it); keep a .mp4 ending
+		// in case AvPlayer looks at it.
+		std::string name = url;
+		const std::string path = url.substr(0, url.find_first_of("?#"));
+		if (path.size() < 4 || path.compare(path.size() - 4, 4, ".mp4") != 0) name += "#stremio.mp4";
+		const int rc = sceAvPlayerAddSource(handle_, name.c_str());
+		platform::log("avplayer: AddSource -> 0x%08X", rc);
+		if (rc < 0) {
+			const std::string reason = stream_->get_error();
+			fail(reason.empty() ? "This video can't be played (" + hex(rc) + ")" : reason);
+			return;
+		}
+		for (int i = 0; i < 3; i++) {
+			if (!buffers_[i]) buffers_[i] = (uint8_t *)av_alloc_texture(nullptr, 0x10000, (uint32_t)FRAME_BYTES);
+			if (!buffers_[i]) {
+				fail("Not enough memory for video frames");
+				return;
+			}
+		}
+		if (g_audio_ok) audio_port_ = sceAudioOutOpen(ORBIS_USER_SERVICE_USER_ID_SYSTEM, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, AUDIO_GRAIN,
+				48000, ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+		stop_ = false;
+		threads_running_ = 2;
+		threads::start(audio_entry, this, THREAD_STACK, "stremio_audio");
+		threads::start(video_entry, this, THREAD_STACK, "stremio_video");
+	}
+
+	void play() override {
+		user_paused_ = false;
+		if (handle_ && started_ && state_ == PAUSED) {
+			sceAvPlayerResume(handle_);
+			state_ = PLAYING;
+		}
+	}
+
+	void pause() override {
+		user_paused_ = true;
+		if (handle_ && started_ && (state_ == PLAYING || state_ == BUFFERING)) {
+			sceAvPlayerPause(handle_);
+			state_ = PAUSED;
+		}
+	}
+
+	void seek(double seconds) override {
+		const uint64_t ms = (uint64_t)(std::max(0.0, seconds) * 1000);
+		if (!handle_ || !started_) {
+			start_ms_ = ms;
+			return;
+		}
+		jump(ms);
+	}
+
+	void update() override {
+		if (state_ == IDLE || state_ == FAILED) return;
+		handle_events();
+		if (state_ == OPENING) {
+			const std::string reason = stream_ ? stream_->get_error() : "";
+			if (!reason.empty()) {
+				fail(reason);
+				return;
+			}
+			if (platform::now() - open_time_ > OPEN_TIMEOUT) {
+				fail("The video took too long to start");
+				return;
+			}
+		}
+		if (started_ && state_ != ENDED) {
+			const uint64_t now_ms = sceAvPlayerCurrentTime(handle_);
+			// Leave BUFFERING once time moves again (no event is guaranteed).
+			if (state_ == BUFFERING && now_ms != last_time_ms_) state_ = user_paused_ ? PAUSED : PLAYING;
+			last_time_ms_ = now_ms;
+			if (!sceAvPlayerIsActive(handle_)) state_ = ENDED;
+		}
+		upload_ready_frame();
+	}
+
+	State state() const override { return state_; }
+	double position() const override {
+		if (!handle_ || !started_) return start_ms_ / 1000.0;
+		return sceAvPlayerCurrentTime(handle_) / 1000.0;
+	}
+	double duration() const override { return duration_; }
+	std::string error() const override { return error_; }
+	const Texture &frame() const override { return texture_; }
+
+private:
+	void fail(const std::string &message) {
+		platform::log("avplayer: failed: %s", message.c_str());
+		error_ = message;
+		state_ = FAILED;
+	}
+
+	void jump(uint64_t ms) {
+		sceAvPlayerJumpToTime(handle_, ms);
+		// Hide frames decoded before the jump (they can still be queued).
+		skip_until_ms_ = ms > 10000 ? ms - 10000 : 0;
+	}
+
+	// Runs on an AvPlayer thread with a tiny stack: logging there crashed the
+	// app. Only record the event in a fixed ring; update() handles it.
+	static void on_event(void *p, int32_t id, int32_t, void *data) {
+		AvPlayerVideo *self = (AvPlayerVideo *)p;
+		const uint32_t slot = self->event_write_.load() % EVENT_RING;
+		self->event_ids_[slot] = id;
+		self->event_extra_[slot] = (id == SCE_AVPLAYER_WARNING_ID && data) ? *(int32_t *)data : 0;
+		self->event_write_++;
+	}
+
+	void handle_events() {
+		std::vector<int32_t> events;
+		const uint32_t end = event_write_.load();
+		if (end - event_read_ > EVENT_RING) event_read_ = end - EVENT_RING; // overflowed: keep the newest
+		for (; event_read_ != end; event_read_++) {
+			const uint32_t slot = event_read_ % EVENT_RING;
+			if (event_ids_[slot] == SCE_AVPLAYER_WARNING_ID) {
+				platform::log("avplayer: warning 0x%08X", event_extra_[slot].load());
+			}
+			events.push_back(event_ids_[slot]);
+		}
+		for (int32_t id : events) {
+			switch (id) {
+				case SCE_AVPLAYER_STATE_READY:
+				case SCE_AVPLAYER_STATE_PLAY:
+					if (!started_) on_started();
+					if (user_paused_) {
+						sceAvPlayerPause(handle_);
+						state_ = PAUSED;
+					} else if (state_ != ENDED) {
+						state_ = PLAYING;
+					}
+					break;
+				case SCE_AVPLAYER_STATE_BUFFERING:
+					if (started_ && state_ != PAUSED) state_ = BUFFERING;
+					break;
+				case SCE_AVPLAYER_STATE_PAUSE:
+					if (started_) state_ = PAUSED;
+					break;
+				case SCE_AVPLAYER_STATE_STOP:
+					if (started_) {
+						state_ = ENDED;
+					} else {
+						const std::string reason = stream_ ? stream_->get_error() : "";
+						fail(reason.empty() ? "This video can't be played on PS4" : reason);
+						return;
+					}
+					break;
+				default: break;
+			}
+		}
+	}
+
+	void on_started() {
+		started_ = true;
+		const int count = sceAvPlayerStreamCount(handle_);
+		for (int i = 0; i < count && i < 16; i++) {
+			SceAvPlayerStreamInfo info;
+			memset(&info, 0, sizeof(info));
+			if (sceAvPlayerGetStreamInfo(handle_, i, &info) < 0) continue;
+			duration_ = std::max(duration_, info.duration / 1000.0);
+			if (info.type == SCE_AVPLAYER_VIDEO) {
+				platform::log("avplayer: video %ux%u, %.0f s", info.details.video.width, info.details.video.height,
+						info.duration / 1000.0);
+			} else if (info.type == SCE_AVPLAYER_AUDIO) {
+				platform::log("avplayer: audio %u ch, %u Hz", info.details.audio.channelCount, info.details.audio.sampleRate);
+			}
+		}
+		// A saved position past the end (e.g. it came from a longer stream of
+		// the same title) would make the jump fail and nothing play.
+		if (duration_ > 0 && start_ms_ / 1000.0 > duration_ - 5) {
+			platform::log("avplayer: resume at %.0f s is past the end (%.0f s); starting over", start_ms_ / 1000.0, duration_);
+			start_ms_ = 0;
+		}
+		if (start_ms_ > 0) jump(start_ms_);
+	}
+
+	void upload_ready_frame() {
+		int w = 0, h = 0;
+		{
+			threads::Lock lock(frame_mutex_);
+			if (!frame_ready_) return;
+			frame_ready_ = false;
+			std::swap(front_, ready_);
+			w = ready_w_;
+			h = ready_h_;
+		}
+		if (texture_.valid() && texture_.width == w && texture_.height == h) {
+			glBindTexture(GL_TEXTURE_2D, texture_.id);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffers_[front_]);
+		} else {
+			if (texture_.valid()) glDeleteTextures(1, &texture_.id);
+			texture_ = make_texture(w, h, buffers_[front_]);
+		}
+	}
+
+	static void *audio_entry(void *p) {
+		((AvPlayerVideo *)p)->audio_loop();
+		return nullptr;
+	}
+
+	static void *video_entry(void *p) {
+		((AvPlayerVideo *)p)->video_loop();
+		return nullptr;
+	}
+
+	// Pulls one decoded audio chunk and plays whole grains of it. Playing
+	// blocks (sceAudioOutOutput waits for the previous grain), which paces
+	// the decoder; without a port the caller paces. Returns the ms pulled.
+	double pull_audio(std::vector<int16_t> &pending) {
+		SceAvPlayerFrameInfo af;
+		memset(&af, 0, sizeof(af));
+		if (!sceAvPlayerGetAudioData(handle_, &af) || !af.pData) return 0;
+		const int ch = af.details.audio.channelCount ? af.details.audio.channelCount : 2;
+		const size_t frames = af.details.audio.size / (2 * ch);
+		const int16_t *src = (const int16_t *)af.pData;
+		for (size_t i = 0; i < frames; i++) {
+			const int16_t l = src[i * ch], r = ch > 1 ? src[i * ch + 1] : l;
+			pending.push_back(l);
+			pending.push_back(r);
+		}
+		size_t consumed = 0;
+		while (pending.size() - consumed >= AUDIO_GRAIN * 2 && !stop_) {
+			if (audio_port_ >= 0) sceAudioOutOutput(audio_port_, pending.data() + consumed);
+			consumed += AUDIO_GRAIN * 2;
+		}
+		pending.erase(pending.begin(), pending.begin() + consumed);
+		const uint32_t rate = af.details.audio.sampleRate ? af.details.audio.sampleRate : 48000;
+		return frames * 1000.0 / rate;
+	}
+
+	// Pulls one decoded video frame (if one is due) and converts it.
+	bool pull_video(int &back, int &frames) {
+		SceAvPlayerFrameInfoEx vf;
+		memset(&vf, 0, sizeof(vf));
+		if (!sceAvPlayerGetVideoDataEx(handle_, &vf) || !vf.pData) return false;
+		if (vf.timeStamp < skip_until_ms_) return true;
+		skip_until_ms_ = 0;
+		const SceAvPlayerVideoEx &v = vf.details.video;
+		const uint32_t pitch = v.pitch ? v.pitch : align_up(v.width, 64);
+		const int w = (int)(v.width - v.cropLeftOffset - v.cropRightOffset) & ~1;
+		const int h = (int)(v.height - v.cropTopOffset - v.cropBottomOffset) & ~1;
+		if (++frames == 1) platform::log("avplayer: video %ux%u", v.width, v.height);
+		if (w <= 0 || h <= 0 || w > MAX_FRAME_W || h > MAX_FRAME_H) return true;
+		const uint8_t *y_plane = (const uint8_t *)vf.pData;
+		const uint8_t *uv_plane = y_plane + (size_t)pitch * v.height;
+		y_plane += (size_t)v.cropTopOffset * pitch + (v.cropLeftOffset & ~1u);
+		uv_plane += (size_t)(v.cropTopOffset / 2) * pitch + (v.cropLeftOffset & ~1u);
+		nv12::nv12_to_rgba(y_plane, uv_plane, pitch, w, h, v.height >= 720, v.videoFullRangeFlag != 0, buffers_[back]);
+		threads::Lock lock(frame_mutex_);
+		std::swap(ready_, back);
+		ready_w_ = w;
+		ready_h_ = h;
+		frame_ready_ = true;
+		return true;
+	}
+
+	void audio_loop() {
+		std::vector<int16_t> pending; // interleaved stereo
+		while (!stop_) {
+			if (!started_ || state_ == PAUSED) {
+				usleep(10000);
+				continue;
+			}
+			const double ms = pull_audio(pending);
+			if (ms <= 0) {
+				usleep(3000);
+			} else if (audio_port_ < 0) {
+				usleep((useconds_t)(ms * 1000));
+			}
+		}
+		threads_running_--;
+	}
+
+	void video_loop() {
+		int back = 2, frames = 0;
+		while (!stop_) {
+			if (!started_ || !pull_video(back, frames)) usleep(2000);
+		}
+		threads_running_--;
+	}
+
+	void close() {
+		stop_ = true;
+		for (int i = 0; i < 300 && threads_running_ > 0; i++) usleep(10000);
+		if (threads_running_ > 0) platform::log("avplayer: player threads didn't stop");
+		if (stream_) stream_->abort = true;
+		if (handle_) {
+			sceAvPlayerStop(handle_);
+			sceAvPlayerClose(handle_); // calls fr_close
+			handle_ = nullptr;
+		}
+		if (audio_port_ >= 0) {
+			sceAudioOutClose(audio_port_);
+			audio_port_ = -1;
+		}
+		{
+			// The I/O thread may still point at the stream for prefetching.
+			threads::Lock lock(g_io_mutex);
+			if (g_prefetch_stream == stream_) g_prefetch_stream = nullptr;
+		}
+		// A prefetch already running finishes quickly (abort) but still uses
+		// the stream: wait for it via an empty job round-trip.
+		if (stream_) {
+			HttpStream *s = stream_;
+			stream_ = nullptr;
+			run_job(Job{ JOB_CLOSE, s, nullptr, 0, 0, -1, false });
+			delete s;
+		}
+		if (texture_.valid()) {
+			glDeleteTextures(1, &texture_.id);
+			texture_ = Texture();
+		}
+		event_read_ = event_write_.load();
+		if (threads_running_ == 0) {
+			for (uint8_t *&b : buffers_) {
+				if (b) av_free_texture(nullptr, b);
+				b = nullptr;
+			}
+		}
+		frame_ready_ = false;
+		started_ = false;
+		user_paused_ = false;
+		duration_ = 0;
+		state_ = IDLE;
+	}
+
+	SceAvPlayerHandle handle_ = nullptr;
+	HttpStream *stream_ = nullptr;
+	int audio_port_ = -1;
+
+	std::atomic<State> state_{ IDLE };
+	std::string error_;
+	double open_time_ = 0;
+	uint64_t start_ms_ = 0;
+	std::atomic<uint64_t> skip_until_ms_{ 0 };
+	uint64_t last_time_ms_ = 0;
+	double duration_ = 0;
+	std::atomic<bool> started_{ false }, user_paused_{ false }, stop_{ true };
+	std::atomic<int> threads_running_{ 0 };
+
+	static const uint32_t EVENT_RING = 32;
+	std::atomic<int32_t> event_ids_[EVENT_RING] = {}, event_extra_[EVENT_RING] = {};
+	std::atomic<uint32_t> event_write_{ 0 };
+	uint32_t event_read_ = 0;
+
+	threads::Mutex frame_mutex_;
+	uint8_t *buffers_[3] = { nullptr, nullptr, nullptr };
+	int ready_ = 0, front_ = 1; // indices; the video thread owns the third
+	int ready_w_ = 0, ready_h_ = 0;
+	bool frame_ready_ = false;
+	Texture texture_;
+
+};
+
+} // namespace
+
+std::unique_ptr<VideoPlayer> create_avplayer_player() {
+	return std::unique_ptr<VideoPlayer>(new AvPlayerVideo());
+}

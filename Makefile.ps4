@@ -1,0 +1,93 @@
+# PS4 build (OpenOrbis) of Stremio TV. Usually run through ./build.sh ps4.
+#
+#   make -f Makefile.ps4          -> build_ps4/stremio-tv-<version>.pkg
+#   make -f Makefile.ps4 clean
+#
+# Needs OO_PS4_TOOLCHAIN, FFmpeg built by tools/build_ffmpeg_ps4.sh and, for
+# packaging, OpenSSL 1.1 + DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
+
+# The version lives in ./VERSION (major.minor.patch). The package's APP_VER
+# is "MM.mm" as the PS4 expects.
+APP_VERSION := $(shell cat VERSION)
+PKG_VERSION := $(shell awk -F. '{ printf "%02d.%02d", $$1, $$2 }' VERSION)
+TITLE       := Stremio TV
+TITLE_ID    := STRM00010
+CONTENT_ID  := IV0000-STRM00010_00-STREMIOTV0000000
+
+TOOLCHAIN   := $(OO_PS4_TOOLCHAIN)
+BIN         := $(TOOLCHAIN)/bin/linux
+OUT         := build_ps4
+STAGE       := $(OUT)/pkg
+
+SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cpp src/render/font.cpp \
+               src/core/json.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
+               src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp \
+               src/ui/home_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \
+               src/ui/card.cpp src/ui/tab_bar.cpp src/ui/search_screen.cpp src/ui/library_screen.cpp src/ui/settings_screen.cpp \
+               src/video/video_avplayer.cpp src/video/video_ffmpeg.cpp src/video/video_player.cpp
+OBJS        := $(patsubst src/%.cpp,$(OUT)/obj/%.o,$(SRCS))
+
+# FFmpeg: built by tools/build_ffmpeg_ps4.sh into ffmpeg_ps4/install.
+FFMPEG_LIBS := -Lffmpeg_ps4/install/lib -lavformat -lavcodec -lswscale -lswresample -lavutil
+
+LIBS        := $(FFMPEG_LIBS) -lc -lm -lclang_rt.builtins-x86_64 -lkernel -lc++ -lSceSysmodule -lSceSystemService -lSceUserService -lScePad -lSceFreeType \
+               -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut -lSceVideoOut -lSceGnmDriver \
+               -lScePigletv2VSH -lScePrecompiledShaders -lSceShellCoreUtil -lSceRtc
+
+# Privileges needed for Piglet (same as the OpenOrbis Piglet sample).
+AUTHINFO    := "000000000000000000000000001C004000FF000000000080000000000000000000000000000000000000008000400040000000000000008000000000000000080040FFFF000000F000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+
+CXXFLAGS    := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -DSTREMIO_PS4 \
+               -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -isystem $(TOOLCHAIN)/include/c++/v1 \
+               -Ithird_party/stb -Iffmpeg_ps4/install/include -DAPP_VERSION='"$(APP_VERSION)"' -Wall -Wno-unused-function
+LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr -L$(TOOLCHAIN)/lib $(LIBS) \
+               $(TOOLCHAIN)/lib/crt1.o
+
+ASSETS      := $(shell find assets -type f)
+STAGED      := eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_sys/about/right.sprx \
+               sce_module/libc.prx sce_module/libSceFios2.prx $(ASSETS)
+
+all: $(OUT)/$(CONTENT_ID).pkg
+
+$(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h) Makefile.ps4 VERSION
+	@mkdir -p $(dir $@)
+	clang++ $(CXXFLAGS) -c -o $@ $<
+
+$(OUT)/stremio_tv.elf: $(OBJS)
+	ld.lld $(OBJS) -o $@ $(LDFLAGS)
+
+$(STAGE)/eboot.bin: $(OUT)/stremio_tv.elf
+	@mkdir -p $(STAGE)
+	$(BIN)/create-fself -in=$< -out=$(OUT)/stremio_tv.oelf --eboot "$@" --paid 0x3800000000000035 --authinfo $(AUTHINFO)
+
+# Package contents: system modules from the toolchain (they must match it),
+# our assets and metadata.
+stage: $(STAGE)/eboot.bin
+	@mkdir -p $(STAGE)/sce_sys/about $(STAGE)/sce_module
+	cp $(TOOLCHAIN)/src/modules/libc.prx $(TOOLCHAIN)/src/modules/libSceFios2.prx $(STAGE)/sce_module/
+	cp $(TOOLCHAIN)/src/modules/right.sprx $(STAGE)/sce_sys/about/
+	cp sce_sys/icon0.png $(STAGE)/sce_sys/
+	rm -rf $(STAGE)/assets && cp -r assets $(STAGE)/assets
+	cd $(STAGE) && rm -f sce_sys/param.sfo && \
+	$(BIN)/PkgTool.Core sfo_new sce_sys/param.sfo && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1 && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value '$(PKG_VERSION)' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 18 --value 0 && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value 'gde' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo FORMAT --type Utf8 --maxsize 4 --value 'obs' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value '$(CONTENT_ID)' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo DOWNLOAD_DATA_SIZE --type Integer --maxsize 4 --value 0 && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 1020 && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value '$(TITLE)' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value '$(TITLE_ID)' && \
+	$(BIN)/PkgTool.Core sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value '$(PKG_VERSION)'
+
+$(OUT)/$(CONTENT_ID).pkg: stage
+	cd $(STAGE) && $(BIN)/create-gp4 -out pkg.gp4 --content-id=$(CONTENT_ID) --files "$(STAGED)"
+	cd $(STAGE) && $(BIN)/PkgTool.Core pkg_build pkg.gp4 ..
+	cp $@ $(OUT)/stremio-tv-$(APP_VERSION).pkg
+
+clean:
+	rm -rf $(OUT)
+
+.PHONY: all stage clean
