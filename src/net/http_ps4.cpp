@@ -25,7 +25,7 @@ namespace http {
 
 namespace {
 int g_http_ctx = -1;
-const char *USER_AGENT = "StremioTV/0.1 (PlayStation 4)";
+const char *USER_AGENT = "StremioPS4/" APP_VERSION " (PlayStation 4)";
 
 std::string describe(int32_t code) {
 	char buf[96];

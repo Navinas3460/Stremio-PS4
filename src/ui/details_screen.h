@@ -30,6 +30,7 @@ private:
 	void on_meta(const MetaItem &meta);
 	void load_streams(const std::string &video_id);
 	void play(const StreamItem &stream);
+	void toggle_library();
 	// One row of a list: a title, an optional second line, greyed out if
 	// `muted`.
 	struct ListRow {

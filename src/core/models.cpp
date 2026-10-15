@@ -106,6 +106,13 @@ std::vector<std::string> wide_artwork(const std::string &id, const std::string &
 
 // --- LibraryItem --------------------------------------------------------------
 
+std::vector<std::string> LibraryItem::poster_images() const {
+	std::vector<std::string> urls;
+	if (!poster.empty()) urls.push_back(poster);
+	if (id.compare(0, 2, "tt") == 0) urls.push_back(std::string(METAHUB) + "/poster/medium/" + id + "/img");
+	return urls;
+}
+
 LibraryItem LibraryItem::from_json(const Json &j) {
 	LibraryItem item;
 	item.raw = j;
@@ -152,6 +159,7 @@ Json LibraryItem::to_json() const {
 	Json d = raw.is_object() ? raw : Json::object();
 	d.set("_id", id).set("name", name).set("type", type).set("removed", removed).set("temp", temp)
 			.set("_mtime", format_time(mtime));
+	if (!poster.empty()) d.set("poster", poster);
 	Json state = raw["state"].is_object() ? raw["state"] : Json::object();
 	state.set("timeOffset", time_offset).set("duration", duration)
 			.set("video_id", video_id.empty() ? Json() : Json(video_id))

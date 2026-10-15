@@ -2,7 +2,7 @@
 // and check the UI quickly on a PC; the PS4 build uses platform_ps4.cpp.
 //
 // Development builds (cmake -DSTREMIO_DEV=ON) can run scripted sessions:
-//   STREMIO_TV_SCRIPT="wait 30; right; right; down; wait 20; shot /tmp/a.png; quit"
+//   STREMIO_PS4_SCRIPT="wait 30; right; right; down; wait 20; shot /tmp/a.png; quit"
 // Steps run one after another; button steps press and release a button,
 // `wait N` waits N frames, `shot PATH` saves the window as PNG.
 
@@ -24,6 +24,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include "stb_image.h" // implementation in net/images.cpp
 
 #if defined(STREMIO_DEV)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -56,11 +58,12 @@ uint32_t button_for_word(const std::string &w) {
 	if (w == "back") return platform::BUTTON_BACK;
 	if (w == "l1") return platform::BUTTON_L1;
 	if (w == "r1") return platform::BUTTON_R1;
+	if (w == "triangle") return platform::BUTTON_TRIANGLE;
 	return 0;
 }
 
 void load_script() {
-	const char *s = getenv("STREMIO_TV_SCRIPT");
+	const char *s = getenv("STREMIO_PS4_SCRIPT");
 	if (!s) {
 		return;
 	}
@@ -197,12 +200,12 @@ bool init(int width, int height) {
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	const char *size = getenv("STREMIO_TV_WINDOW");
+	const char *size = getenv("STREMIO_PS4_WINDOW");
 	int ww = 1280, wh = 720;
 	if (size) {
 		sscanf(size, "%dx%d", &ww, &wh);
 	}
-	g_window = SDL_CreateWindow("Stremio TV (desktop)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ww, wh,
+	g_window = SDL_CreateWindow("Stremio PS4 (desktop)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ww, wh,
 			SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
 	if (!g_window) {
 		log("SDL_CreateWindow failed: %s", SDL_GetError());
@@ -217,6 +220,15 @@ bool init(int width, int height) {
 	char *base = SDL_GetBasePath();
 	g_base_path = base ? base : "./";
 	SDL_free(base);
+	// Window icon: the PS4 tile (sce_sys/icon0.png, copied next to the exe).
+	int iw = 0, ih = 0, n = 0;
+	if (uint8_t *px = stbi_load((g_base_path + "icon0.png").c_str(), &iw, &ih, &n, 4)) {
+		if (SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(px, iw, ih, 32, iw * 4, SDL_PIXELFORMAT_RGBA32)) {
+			SDL_SetWindowIcon(g_window, icon);
+			SDL_FreeSurface(icon);
+		}
+		stbi_image_free(px);
+	}
 	log("GL_VERSION=%s", glGetString(GL_VERSION));
 	load_script();
 	return true;
@@ -242,6 +254,7 @@ bool poll(uint32_t &held) {
 	if (k[SDL_SCANCODE_ESCAPE] || k[SDL_SCANCODE_BACKSPACE]) held |= BUTTON_BACK;
 	if (k[SDL_SCANCODE_Q] || k[SDL_SCANCODE_PAGEUP]) held |= BUTTON_L1;
 	if (k[SDL_SCANCODE_E] || k[SDL_SCANCODE_PAGEDOWN]) held |= BUTTON_R1;
+	if (k[SDL_SCANCODE_T]) held |= BUTTON_TRIANGLE;
 	if (g_pad) {
 		auto b = [](SDL_GameControllerButton btn) { return SDL_GameControllerGetButton(g_pad, btn) != 0; };
 		if (b(SDL_CONTROLLER_BUTTON_DPAD_UP)) held |= BUTTON_UP;
@@ -253,6 +266,7 @@ bool poll(uint32_t &held) {
 		if (b(SDL_CONTROLLER_BUTTON_START)) held |= BUTTON_OPTIONS;
 		if (b(SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) held |= BUTTON_L1;
 		if (b(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) held |= BUTTON_R1;
+		if (b(SDL_CONTROLLER_BUTTON_Y)) held |= BUTTON_TRIANGLE;
 	}
 	held |= run_script();
 	return true;
@@ -302,7 +316,7 @@ void viewport(int &x, int &y, int &w, int &h) {
 void log(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	fprintf(stderr, "[stremio_tv] ");
+	fprintf(stderr, "[stremio_ps4] ");
 	vfprintf(stderr, fmt, ap);
 	fprintf(stderr, "\n");
 	va_end(ap);
@@ -343,14 +357,16 @@ bool should_quit() {
 }
 
 std::string data_dir() {
-	// STREMIO_TV_DATA lets tests use a throwaway folder.
+	// STREMIO_PS4_DATA lets tests use a throwaway folder.
 	std::string dir;
-	if (const char *d = getenv("STREMIO_TV_DATA")) {
+	if (const char *d = getenv("STREMIO_PS4_DATA")) {
 		dir = d;
-	} else if (const char *x = getenv("XDG_DATA_HOME")) {
-		dir = std::string(x) + "/stremio_tv";
 	} else {
-		dir = std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.local/share/stremio_tv";
+		const char *x = getenv("XDG_DATA_HOME");
+		const std::string base = x ? x : std::string(getenv("HOME") ? getenv("HOME") : ".") + "/.local/share";
+		dir = base + "/stremio_ps4";
+		struct stat st;
+		if (stat(dir.c_str(), &st) != 0) rename((base + "/stremio_tv").c_str(), dir.c_str()); // the app's earlier name
 	}
 	mkdir(dir.c_str(), 0755);
 	return dir + "/";

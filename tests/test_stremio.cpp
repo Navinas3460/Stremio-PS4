@@ -252,3 +252,58 @@ TEST(stremio_search_drops_stale_answers) {
 	s.search("");
 	CHECK(s.search_results().empty());
 }
+
+namespace {
+std::vector<std::string> ids(const std::vector<const LibraryItem *> &items) {
+	std::vector<std::string> out;
+	for (const LibraryItem *item : items) out.push_back(item->id);
+	return out;
+}
+} // namespace
+
+TEST(stremio_library_filters_and_sorts) {
+	Stremio s;
+	signed_in(s);
+	using Sort = Stremio::LibrarySort;
+	// Removed items aren't in the library page.
+	CHECK(ids(s.library("", Sort::LAST_WATCHED)) == std::vector<std::string>({ "tt1375666", "tt0903747" }));
+	CHECK(ids(s.library("", Sort::NAME)) == std::vector<std::string>({ "tt0903747", "tt1375666" }));
+	CHECK(ids(s.library("series", Sort::LAST_WATCHED)) == std::vector<std::string>({ "tt0903747" }));
+	CHECK(s.library("channel", Sort::NAME).empty());
+	CHECK(s.library_types() == std::vector<std::string>({ "movie", "series" }));
+	CHECK(s.in_library("tt1375666"));
+	CHECK(!s.in_library("tt0000001"));
+	CHECK(!s.in_library("tt9999999"));
+}
+
+TEST(stremio_add_and_remove_from_library) {
+	Stremio s;
+	signed_in(s);
+	const int puts = count_puts();
+	const MetaItem meta = MetaItem::from_json(Json::parse(
+			R"({"id":"tt7777777","type":"movie","name":"New","poster":"https://img.example/new.jpg"})"));
+	s.add_to_library(meta);
+	CHECK(s.in_library("tt7777777"));
+	CHECK_EQ(count_puts(), puts + 1);
+	Json put = last_put_item();
+	CHECK_EQ(put["_id"].as_string(), "tt7777777");
+	CHECK(!put["removed"].as_bool(true));
+	CHECK(!put["temp"].as_bool(true));
+	CHECK_EQ(put["poster"].as_string(), "https://img.example/new.jpg");
+	// Just added counts as watched now: first in "Recent".
+	CHECK_EQ(s.library("", Stremio::LibrarySort::LAST_WATCHED)[0]->id, "tt7777777");
+
+	// Removing hides it from the library and Continue watching but keeps the
+	// watch state, which re-adding brings back.
+	s.remove_from_library("tt1375666");
+	CHECK(!s.in_library("tt1375666"));
+	CHECK(last_put_item()["removed"].as_bool(false));
+	for (const LibraryItem *item : s.continue_watching()) CHECK(item->id != "tt1375666");
+	s.add_to_library(MetaItem::from_json(Json::parse(R"({"id":"tt1375666","type":"movie","name":"Inception"})")));
+	const LibraryItem *item = s.library_item("tt1375666");
+	CHECK(item && !item->removed && item->time_offset == 1800000);
+	// Removing something that isn't in the library sends nothing.
+	const int before = count_puts();
+	s.remove_from_library("tt0000001");
+	CHECK_EQ(count_puts(), before);
+}

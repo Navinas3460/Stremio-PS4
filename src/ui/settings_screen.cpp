@@ -85,6 +85,6 @@ void SettingsScreen::draw(Renderer &r) {
 		ui::end_focus(r, MARGIN_X, y, ITEM_W, ITEM_H, R, item.focus);
 	}
 	const float info_y = ITEMS_TOP + items_.size() * (ITEM_H + ITEM_GAP) + S(40);
-	r.text(fonts_.body, std::string("Stremio TV ") + APP_VERSION, MARGIN_X, info_y, theme::BASE_CONTENT_MUTED);
+	r.text(fonts_.body, std::string("Stremio PS4 ") + APP_VERSION, MARGIN_X, info_y, theme::BASE_CONTENT_MUTED);
 	bar_.draw(r, fonts_);
 }

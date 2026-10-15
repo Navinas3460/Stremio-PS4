@@ -55,6 +55,26 @@ void end_focus(Renderer &r, float x, float y, float w, float h, float radius, fl
 	r.pop();
 }
 
+float chip_width(Font &font, const std::string &label) {
+	return font.measure(label) + font.size() * 2.0f;
+}
+
+void chip(Renderer &r, Font &font, const std::string &label, float x, float y, float w, float h, bool active,
+		float focus, const Color &behind) {
+	const float R = theme::RADIUS_SELECTOR;
+	begin_focus(r, x, y, w, h, R, focus, theme::FOCUS_SCALE, active ? theme::SECONDARY : theme::PRIMARY);
+	r.rounded_rect(x, y, w, h, R, active ? theme::PRIMARY : mix(theme::BASE_200, theme::BASE_300, focus));
+	// (Opaque: translucent text would be blended toward the backdrop, not the chip.)
+	const Color muted = mix(theme::BASE_200, theme::BASE_CONTENT, theme::ALPHA_UNFOCUSED);
+	const Color fg = active ? theme::PRIMARY_CONTENT : mix(muted, theme::BASE_CONTENT, focus);
+	r.text(font, label, x + (w - font.measure(label)) / 2, centred_baseline(font, y + h / 2), fg);
+	if (active) {
+		end_focus(r, x, y, w, h, R, focus, behind);
+	} else {
+		r.pop(); // inactive chips are dimmed by their muted label
+	}
+}
+
 float badge_height(Font &font) {
 	return font.size() * 1.5f;
 }

@@ -27,6 +27,14 @@ void begin_focus(Renderer &r, float x, float y, float w, float h, float radius, 
 void end_focus(Renderer &r, float x, float y, float w, float h, float radius, float focus,
 		const Color &behind = theme::BASE_100);
 
+// Pill button (daisyUI btn / filter / tab), label centred: filled with the
+// primary colour when `active`, else BASE_200 lightening with `focus`. An
+// active chip is ringed in the secondary colour while focused so the two
+// states stay distinguishable. `behind` is the colour around it.
+float chip_width(Font &font, const std::string &label);
+void chip(Renderer &r, Font &font, const std::string &label, float x, float y, float w, float h, bool active,
+		float focus, const Color &behind = theme::BASE_100);
+
 // Pill with a label. Returns its width.
 float badge_width(Font &font, const std::string &text);
 float badge(Renderer &r, Font &font, const std::string &text, float x, float y, const Color &bg, const Color &fg);

@@ -39,7 +39,7 @@ Response perform(const Request &request) {
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "StremioTV/0.1 (PlayStation 4)");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "StremioPS4/" APP_VERSION);
 	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
@@ -94,7 +94,7 @@ public:
 		curl_easy_setopt(curl_, CURLOPT_LOW_SPEED_LIMIT, 1L);
 		curl_easy_setopt(curl_, CURLOPT_LOW_SPEED_TIME, 30L);
 		curl_easy_setopt(curl_, CURLOPT_NOSIGNAL, 1L);
-		curl_easy_setopt(curl_, CURLOPT_USERAGENT, "StremioTV/0.1 (PlayStation 4)");
+		curl_easy_setopt(curl_, CURLOPT_USERAGENT, "StremioPS4/" APP_VERSION);
 		curl_easy_setopt(curl_, CURLOPT_HTTPHEADER, headers_);
 		curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION, on_body);
 		curl_easy_setopt(curl_, CURLOPT_WRITEDATA, &t);

@@ -22,11 +22,10 @@ Card Card::from_meta(const MetaItem &m) {
 	return c;
 }
 
-void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	const float R = theme::RADIUS_FIELD;
-	const float f = c.focus;
-	ui::begin_focus(r, x, y, w, h, R, f);
-	r.rounded_rect(x, y, w, h, R, theme::BASE_200);
+namespace {
+// Artwork (or the title's initial) in a rounded w x h box.
+void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
+	r.rounded_rect(x, y, w, h, theme::RADIUS_FIELD, theme::BASE_200);
 	const Texture &art = images::first(c.images);
 	if (art.valid()) {
 		r.image_cover(art, x, y, w, h);
@@ -35,10 +34,28 @@ void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float
 		const float iw = fonts.page_header.measure(initial);
 		r.text(fonts.page_header, initial, x + (w - iw) / 2, y + h / 2 + S(16), theme::BASE_CONTENT_MUTED);
 	}
+}
+
+// The artwork is square-cornered: cap its corners in the colour behind it
+// (the focus ring while it shows).
+void round_artwork(Renderer &r, const Card &c, float x, float y, float w, float h) {
+	r.round_corners(x, y, w, h, theme::RADIUS_FIELD,
+			c.focus > 0.02f ? mix(theme::BASE_100, theme::PRIMARY, c.focus) : theme::BASE_100);
+}
+
+void draw_badge(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w) {
+	if (c.badge.empty()) return;
+	const float bw = ui::badge_width(fonts.body, c.badge);
+	ui::badge(r, fonts.body, c.badge, x + w - S(16) - bw, y + S(16), theme::ACCENT, theme::ACCENT_CONTENT);
+}
+} // namespace
+
+void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
+	const float R = theme::RADIUS_FIELD;
+	ui::begin_focus(r, x, y, w, h, R, c.focus);
+	draw_artwork(r, fonts, c, x, y, w, h);
 	r.vertical_fade(x, y + h * 0.35f, w, h * 0.65f, theme::BASE_100, 0.0f, 0.95f);
-	// The artwork is square-cornered: cap its corners in the colour behind it
-	// (the focus ring while it shows).
-	r.round_corners(x, y, w, h, R, f > 0.02f ? mix(theme::BASE_100, theme::PRIMARY, f) : theme::BASE_100);
+	round_artwork(r, c, x, y, w, h);
 
 	const float pad = S(24);
 	float baseline = y + h - S(22);
@@ -52,11 +69,30 @@ void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float
 		baseline -= S(32);
 	}
 	r.text(fonts.card_title, fonts.card_title.ellipsize(c.title, w - 2 * pad), x + pad, baseline, theme::BASE_CONTENT);
-	if (!c.badge.empty()) {
-		const float bw = ui::badge_width(fonts.body, c.badge);
-		ui::badge(r, fonts.body, c.badge, x + w - S(16) - bw, y + S(16), theme::ACCENT, theme::ACCENT_CONTENT);
+	draw_badge(r, fonts, c, x, y, w);
+	ui::end_focus(r, x, y, w, h, R, c.focus);
+}
+
+void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
+	const float R = theme::RADIUS_FIELD;
+	ui::begin_focus(r, x, y, w, h, R, c.focus);
+	draw_artwork(r, fonts, c, x, y, w, h);
+	if (c.progress > 0) {
+		const float pad = S(14), bar_h = S(6);
+		r.vertical_fade(x, y + h * 0.75f, w, h * 0.25f, theme::BASE_100, 0.0f, 0.85f);
+		ui::progress(r, x + pad, y + h - pad - bar_h, w - 2 * pad, bar_h, c.progress);
 	}
-	ui::end_focus(r, x, y, w, h, R, f);
+	round_artwork(r, c, x, y, w, h);
+	draw_badge(r, fonts, c, x, y, w);
+	ui::end_focus(r, x, y, w, h, R, c.focus);
+
+	// Caption (not scaled; it brightens with the focus like the poster).
+	const float alpha = theme::ALPHA_UNFOCUSED + (1.0f - theme::ALPHA_UNFOCUSED) * c.focus;
+	r.text(fonts.card_title, fonts.card_title.ellipsize(c.title, w), x, y + h + S(46), theme::BASE_CONTENT.with_alpha(alpha));
+	if (!c.subtitle.empty()) {
+		r.text(fonts.body, fonts.body.ellipsize(c.subtitle, w), x, y + h + S(74),
+				theme::BASE_CONTENT_MUTED.with_alpha(alpha));
+	}
 }
 
 void open_details(const Card &c, Fonts &fonts, Navigator &nav) {

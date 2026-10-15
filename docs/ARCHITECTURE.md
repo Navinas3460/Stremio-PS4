@@ -1,6 +1,6 @@
 # Architecture
 
-Stremio TV is a native C++17 app. A single codebase builds for:
+Stremio PS4 is a native C++17 app. A single codebase builds for:
 
 - **PS4:** OpenOrbis homebrew, using Piglet (OpenGL ES 2.0) and the PS4's
   system libraries.

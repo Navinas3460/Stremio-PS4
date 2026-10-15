@@ -59,28 +59,12 @@ void TabBar::draw(Renderer &r, Fonts &fonts) {
 	const float box_w = COUNT * TAB_W + 2 * BOX_PAD;
 	const float box_x = (W - box_w) / 2;
 	r.rounded_rect(box_x, BOX_Y, box_w, BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
-	for (int i = 0; i < COUNT; i++) {
-		const float x = box_x + BOX_PAD + i * TAB_W, y = BOX_Y + BOX_PAD;
-		const bool active = i == active_;
-		const float f = focus_[i];
-		// The active tab is filled; focusing it rings it in the secondary
-		// colour so the two states stay distinguishable.
-		ui::begin_focus(r, x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, f, theme::FOCUS_SCALE,
-				active ? theme::SECONDARY : theme::PRIMARY);
-		if (active || f > 0.02f) {
-			const Color body = active ? theme::PRIMARY : theme::BASE_300.with_alpha(f);
-			r.rounded_rect(x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, body);
-		}
-		Font &font = fonts.card_title;
-		const float lw = font.measure(LABELS[i]);
-		// (Opaque: translucent text would be blended toward the backdrop, not the box.)
-		const Color muted = mix(theme::BASE_200, theme::BASE_CONTENT, theme::ALPHA_UNFOCUSED);
-		const Color label = active ? theme::PRIMARY_CONTENT : mix(muted, theme::BASE_CONTENT, f);
-		r.text(font, LABELS[i], x + (TAB_W - lw) / 2, y + TAB_H / 2 + font.size() * 0.36f, label);
-		if (active) {
-			ui::end_focus(r, x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, f, theme::BASE_200);
-		} else {
-			r.pop(); // inactive tabs are dimmed by their muted label
+	// The focused tab last, so its ring isn't covered by its neighbours.
+	for (int pass = 0; pass < 2; pass++) {
+		for (int i = 0; i < COUNT; i++) {
+			if ((pass == 0) == (focus_[i] > 0.5f)) continue;
+			ui::chip(r, fonts.card_title, LABELS[i], box_x + BOX_PAD + i * TAB_W, BOX_Y + BOX_PAD, TAB_W, TAB_H,
+					i == active_, focus_[i], theme::BASE_200);
 		}
 	}
 	// Shoulder-button marks at the ends of the box.

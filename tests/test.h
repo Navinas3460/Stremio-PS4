@@ -1,6 +1,6 @@
 // A minimal test runner (no dependencies): TEST(name) { CHECK(...); }.
 // Failures are reported with file and line; the process exits non-zero if
-// any check failed. Run with a name filter: stremio_tv_tests nv12
+// any check failed. Run with a name filter: stremio_ps4_tests nv12
 #pragma once
 
 #include <cmath>

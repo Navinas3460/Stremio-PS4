@@ -1,4 +1,4 @@
-# Reproducible PS4 build environment for Stremio TV.
+# Reproducible PS4 build environment for Stremio PS4.
 #
 #   ./build.sh ps4            (builds this image, then the package inside it)
 #

@@ -8,6 +8,11 @@
 #define STBI_ONLY_JPEG
 #include "stb_image.h"
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+}
+
 #include <cstring>
 #include <deque>
 #include <unordered_map>
@@ -56,6 +61,44 @@ void shrink(Decoded &img) {
 	}
 }
 
+// WebP, which stb_image can't read (metahub serves newer posters as WebP):
+// FFmpeg's decoder takes the whole RIFF file as one packet.
+bool decode_webp(const std::string &data, Decoded &out) {
+	if (data.size() < 12 || memcmp(data.data(), "RIFF", 4) != 0 || memcmp(data.data() + 8, "WEBP", 4) != 0) return false;
+	const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_WEBP);
+	if (!codec) return false;
+	AVCodecContext *ctx = avcodec_alloc_context3(codec);
+	AVPacket *packet = av_packet_alloc();
+	AVFrame *frame = av_frame_alloc();
+	bool ok = false;
+	if (ctx && packet && frame) {
+		ctx->thread_count = 1;
+		if (avcodec_open2(ctx, codec, nullptr) == 0 && av_new_packet(packet, (int)data.size()) == 0) {
+			memcpy(packet->data, data.data(), data.size());
+			int err = avcodec_send_packet(ctx, packet);
+			if (err == 0) err = avcodec_receive_frame(ctx, frame);
+			if (err == AVERROR(EAGAIN) && avcodec_send_packet(ctx, nullptr) == 0) err = avcodec_receive_frame(ctx, frame);
+			const int w = frame->width, h = frame->height;
+			SwsContext *sws = err == 0 ? sws_getContext(w, h, (AVPixelFormat)frame->format, w, h, AV_PIX_FMT_RGBA,
+												   SWS_BILINEAR, nullptr, nullptr, nullptr)
+									   : nullptr;
+			if (sws) {
+				out.width = w;
+				out.height = h;
+				out.rgba.resize((size_t)w * h * 4);
+				uint8_t *dst[4] = { out.rgba.data() };
+				int stride[4] = { w * 4 };
+				ok = sws_scale(sws, frame->data, frame->linesize, 0, h, dst, stride) == h;
+				sws_freeContext(sws);
+			}
+		}
+	}
+	av_frame_free(&frame);
+	av_packet_free(&packet);
+	avcodec_free_context(&ctx);
+	return ok;
+}
+
 void start(const std::string &url) {
 	g_entries[url].last_used = g_frame;
 	http::get(
@@ -72,17 +115,18 @@ void start(const std::string &url) {
 				if (!res.ok()) {
 					return;
 				}
+				auto img = std::make_shared<Decoded>();
 				int w = 0, h = 0, n = 0;
 				uint8_t *px = stbi_load_from_memory((const stbi_uc *)res.body.data(), (int)res.body.size(), &w, &h, &n, 4);
-				if (!px) {
+				if (px) {
+					img->width = w;
+					img->height = h;
+					img->rgba.assign(px, px + (size_t)w * h * 4);
+					stbi_image_free(px);
+				} else if (!decode_webp(res.body, *img)) {
 					res.error = "image decode failed";
 					return;
 				}
-				auto img = std::make_shared<Decoded>();
-				img->width = w;
-				img->height = h;
-				img->rgba.assign(px, px + (size_t)w * h * 4);
-				stbi_image_free(px);
 				shrink(*img);
 				res.body.clear();
 				res.payload = img;

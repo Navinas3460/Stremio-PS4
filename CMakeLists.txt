@@ -1,16 +1,16 @@
-# Desktop build (SDL2 + OpenGL ES 2) of Stremio TV, for development, and the
+# Desktop build (SDL2 + OpenGL ES 2) of Stremio PS4, for development, and the
 # unit tests. The PS4 package is built with Makefile.ps4 instead (see
 # BUILDING.md).
 #
-#   cmake -S . -B build && cmake --build build -j && build/stremio_tv
+#   cmake -S . -B build && cmake --build build -j && build/stremio_ps4
 #   ctest --test-dir build --output-on-failure
 #
-# -DSTREMIO_DEV=ON adds developer tools: demo session (STREMIO_TV_DEMO=1),
-# extra add-ons (STREMIO_TV_DEMO_ADDONS), scripted runs with screenshots
-# (STREMIO_TV_SCRIPT) and an fps overlay.
+# -DSTREMIO_DEV=ON adds developer tools: demo session (STREMIO_PS4_DEMO=1),
+# extra add-ons (STREMIO_PS4_DEMO_ADDONS), scripted runs with screenshots
+# (STREMIO_PS4_SCRIPT) and an fps overlay.
 cmake_minimum_required(VERSION 3.17)
 file(STRINGS VERSION APP_VERSION LIMIT_COUNT 1)
-project(stremio_tv VERSION ${APP_VERSION} LANGUAGES CXX)
+project(stremio_ps4 VERSION ${APP_VERSION} LANGUAGES CXX)
 option(STREMIO_DEV "Developer tools (demo session, scripted runs)" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -22,7 +22,7 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sdl2 glesv2 freetype2 libcurl libavformat libavcodec libswscale libswresample libavutil)
 
-add_executable(stremio_tv
+add_executable(stremio_ps4
     src/main.cpp
     src/platform/platform_desktop.cpp
     src/render/renderer.cpp
@@ -48,24 +48,26 @@ add_executable(stremio_tv
     src/video/video_ffmpeg.cpp
     src/video/video_player.cpp
 )
-target_include_directories(stremio_tv PRIVATE third_party/stb)
-target_link_libraries(stremio_tv PRIVATE PkgConfig::DEPS)
-target_compile_options(stremio_tv PRIVATE -Wall -Wno-unused-function)
-target_compile_definitions(stremio_tv PRIVATE APP_VERSION="${APP_VERSION}")
+target_include_directories(stremio_ps4 PRIVATE third_party/stb)
+target_link_libraries(stremio_ps4 PRIVATE PkgConfig::DEPS)
+target_compile_options(stremio_ps4 PRIVATE -Wall -Wno-unused-function)
+target_compile_definitions(stremio_ps4 PRIVATE APP_VERSION="${APP_VERSION}")
 if(STREMIO_DEV)
-    target_compile_definitions(stremio_tv PRIVATE STREMIO_DEV)
+    target_compile_definitions(stremio_ps4 PRIVATE STREMIO_DEV)
 endif()
 
-# Assets next to the executable (platform::asset_path uses the exe folder).
-add_custom_command(TARGET stremio_tv POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:stremio_tv>/assets)
+# Assets next to the executable (platform::asset_path uses the exe folder),
+# and the PS4 tile as the window icon.
+add_custom_command(TARGET stremio_ps4 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:stremio_ps4>/assets
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/sce_sys/icon0.png $<TARGET_FILE_DIR:stremio_ps4>/icon0.png)
 
 # Unit tests: the platform-independent code, plus the Stremio facade against
 # fake platform / HTTP layers (tests/fakes.cpp). No window, network or PS4.
 option(STREMIO_TESTS "Build the unit tests" ON)
 if(STREMIO_TESTS)
     enable_testing()
-    add_executable(stremio_tv_tests
+    add_executable(stremio_ps4_tests
         tests/main.cpp
         tests/fakes.cpp
         tests/test_json.cpp
@@ -78,6 +80,6 @@ if(STREMIO_TESTS)
         src/core/stremio.cpp
         src/core/subtitles.cpp
     )
-    target_compile_options(stremio_tv_tests PRIVATE -Wall -Wno-unused-function)
-    add_test(NAME unit COMMAND stremio_tv_tests)
+    target_compile_options(stremio_ps4_tests PRIVATE -Wall -Wno-unused-function)
+    add_test(NAME unit COMMAND stremio_ps4_tests)
 endif()

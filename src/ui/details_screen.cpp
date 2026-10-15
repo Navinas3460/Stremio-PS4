@@ -138,11 +138,30 @@ void DetailsScreen::play(const StreamItem &stream) {
 	nav_.push(std::unique_ptr<Screen>(new PlayerScreen(fonts_, nav_, args)));
 }
 
+void DetailsScreen::toggle_library() {
+	Stremio &s = stremio();
+	if (s.in_library(target_.meta_id)) {
+		s.remove_from_library(target_.meta_id);
+		toast_.show("Removed from your library");
+		return;
+	}
+	MetaItem meta = meta_;
+	if (!has_meta_) { // not loaded (yet): what the card showed
+		meta.id = target_.meta_id;
+		meta.type = target_.type;
+		meta.name = target_.name;
+		meta.poster = target_.poster;
+	}
+	s.add_to_library(meta);
+	toast_.show("Added to your library");
+}
+
 void DetailsScreen::update(double dt, uint32_t pressed) {
 	if (pressed & platform::BUTTON_BACK) {
 		nav_.pop();
 		return;
 	}
+	if (pressed & platform::BUTTON_TRIANGLE) toggle_library();
 	const bool has_episodes = has_meta_ && meta_.videos.size() > 1;
 	if (!has_episodes) column_ = 1;
 	ListState &list = column_ == 0 ? episodes_list_ : streams_list_;
@@ -211,7 +230,12 @@ void DetailsScreen::draw(Renderer &r) {
 	y += S(44);
 	std::string info = target_.type.empty() ? "" : std::string(1, (char)toupper(target_.type[0])) + target_.type.substr(1);
 	if (!target_.release_info.empty()) info += "  \xC2\xB7  " + target_.release_info;
-	r.text(fonts_.body, info, MARGIN, y, theme::BASE_CONTENT_MUTED);
+	const float info_w = r.text(fonts_.body, info, MARGIN, y, theme::BASE_CONTENT_MUTED);
+	if (stremio().in_library(target_.meta_id)) {
+		const float bx = MARGIN + info_w + (info.empty() ? 0 : S(20));
+		const float by = y - fonts_.body.size() * 0.36f - ui::badge_height(fonts_.small) / 2;
+		ui::badge(r, fonts_.small, "In library", bx, by, theme::ACCENT, theme::ACCENT_CONTENT);
+	}
 	y += S(42);
 	if (!meta_error_.empty() && !has_meta_) {
 		r.text(fonts_.body, "Couldn't load details: " + meta_error_, MARGIN, y, theme::ERROR);
@@ -253,7 +277,10 @@ void DetailsScreen::draw(Renderer &r) {
 	}
 	draw_list(r, streams_list_, rows, -1, streams_x, LIST_Y, sw, LIST_H);
 
-	ui::hints(r, fonts_.small, { { "\xC3\x97", column_ == 0 ? "Episode" : "Play" }, { "\xE2\x97\x8B", "Back" } }, MARGIN,
-			H - S(40));
+	const bool saved = stremio().in_library(target_.meta_id);
+	ui::hints(r, fonts_.small,
+			{ { "\xC3\x97", column_ == 0 ? "Episode" : "Play" },
+					{ "\xE2\x96\xB3", saved ? "Remove from library" : "Add to library" }, { "\xE2\x97\x8B", "Back" } },
+			MARGIN, H - S(40));
 	toast_.draw(r, fonts_.body, W / 2, H - S(120));
 }

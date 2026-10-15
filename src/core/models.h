@@ -48,6 +48,7 @@ struct LibraryItem {
 	int minutes_left() const;        // -1 if unknown
 	std::string episode_label() const; // "S1 · E3" for series
 	std::vector<std::string> landscape_images() const { return wide_artwork(id, "", poster); }
+	std::vector<std::string> poster_images() const; // portrait artwork, best first
 };
 
 struct Video {

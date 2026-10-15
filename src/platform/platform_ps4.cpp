@@ -37,7 +37,7 @@ bool g_system_service = false;
 
 namespace {
 
-const char *LOG_PATH = "/data/stremio_tv.log";
+const char *LOG_PATH = "/data/stremio_ps4.log";
 const double FRAME_SECONDS = 1.0 / 60.0;
 
 FILE *g_log = nullptr;
@@ -162,7 +162,7 @@ bool init(int width, int height) {
 	g_log = fopen(LOG_PATH, "w");
 	g_width = width;
 	g_height = height;
-	log("Stremio TV starting");
+	log("Stremio PS4 starting");
 	// FreeType is a system module that must be loaded before FT_Init_FreeType.
 	log("FreeType module: 0x%08X", sceSysmoduleLoadModule(ORBIS_SYSMODULE_FREETYPE_OL));
 	const int ss = sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_SYSTEM_SERVICE);
@@ -197,6 +197,7 @@ bool poll(uint32_t &held) {
 	if (b & ORBIS_PAD_BUTTON_OPTIONS) held |= BUTTON_OPTIONS;
 	if (b & ORBIS_PAD_BUTTON_L1) held |= BUTTON_L1;
 	if (b & ORBIS_PAD_BUTTON_R1) held |= BUTTON_R1;
+	if (b & ORBIS_PAD_BUTTON_TRIANGLE) held |= BUTTON_TRIANGLE;
 	// Left stick works like the D-pad.
 	const int sx = (int)data.leftStick.x - 128, sy = (int)data.leftStick.y - 128;
 	if (sx < -64) held |= BUTTON_LEFT;
@@ -278,7 +279,7 @@ void log(const char *fmt, ...) {
 	va_start(ap, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
-	printf("[stremio_tv] %s\n", buf);
+	printf("[stremio_ps4] %s\n", buf);
 	if (g_log) {
 		fprintf(g_log, "%s\n", buf);
 		fflush(g_log);
@@ -312,8 +313,12 @@ bool should_quit() {
 }
 
 std::string data_dir() {
-	sceKernelMkdir("/data/stremio_tv", 0777); // fine if it exists
-	return "/data/stremio_tv/";
+	// Versions named "Stremio TV" used /data/stremio_tv: move it, keeping the
+	// session and settings.
+	OrbisKernelStat st;
+	if (sceKernelStat("/data/stremio_ps4", &st) != 0) sceKernelRename("/data/stremio_tv", "/data/stremio_ps4");
+	sceKernelMkdir("/data/stremio_ps4", 0777); // fine if it exists
+	return "/data/stremio_ps4/";
 }
 
 int64_t unix_time() {

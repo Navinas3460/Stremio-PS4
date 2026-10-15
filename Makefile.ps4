@@ -1,6 +1,6 @@
-# PS4 build (OpenOrbis) of Stremio TV. Usually run through ./build.sh ps4.
+# PS4 build (OpenOrbis) of Stremio PS4. Usually run through ./build.sh ps4.
 #
-#   make -f Makefile.ps4          -> build_ps4/stremio-tv-<version>.pkg
+#   make -f Makefile.ps4          -> build_ps4/stremio-ps4-<version>.pkg
 #   make -f Makefile.ps4 clean
 #
 # Needs OO_PS4_TOOLCHAIN, FFmpeg built by tools/build_ffmpeg_ps4.sh and, for
@@ -10,8 +10,9 @@
 # is "MM.mm" as the PS4 expects.
 APP_VERSION := $(shell cat VERSION)
 PKG_VERSION := $(shell awk -F. '{ printf "%02d.%02d", $$1, $$2 }' VERSION)
-TITLE       := Stremio TV
+TITLE       := Stremio PS4
 TITLE_ID    := STRM00010
+# Kept from the app's earlier name so new packages install over existing ones.
 CONTENT_ID  := IV0000-STRM00010_00-STREMIOTV0000000
 
 TOOLCHAIN   := $(OO_PS4_TOOLCHAIN)
@@ -53,12 +54,12 @@ $(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h) Makefile.ps4 VERSION
 	@mkdir -p $(dir $@)
 	clang++ $(CXXFLAGS) -c -o $@ $<
 
-$(OUT)/stremio_tv.elf: $(OBJS)
+$(OUT)/stremio_ps4.elf: $(OBJS)
 	ld.lld $(OBJS) -o $@ $(LDFLAGS)
 
-$(STAGE)/eboot.bin: $(OUT)/stremio_tv.elf
+$(STAGE)/eboot.bin: $(OUT)/stremio_ps4.elf
 	@mkdir -p $(STAGE)
-	$(BIN)/create-fself -in=$< -out=$(OUT)/stremio_tv.oelf --eboot "$@" --paid 0x3800000000000035 --authinfo $(AUTHINFO)
+	$(BIN)/create-fself -in=$< -out=$(OUT)/stremio_ps4.oelf --eboot "$@" --paid 0x3800000000000035 --authinfo $(AUTHINFO)
 
 # Package contents: system modules from the toolchain (they must match it),
 # our assets and metadata.
@@ -85,7 +86,7 @@ stage: $(STAGE)/eboot.bin
 $(OUT)/$(CONTENT_ID).pkg: stage
 	cd $(STAGE) && $(BIN)/create-gp4 -out pkg.gp4 --content-id=$(CONTENT_ID) --files "$(STAGED)"
 	cd $(STAGE) && $(BIN)/PkgTool.Core pkg_build pkg.gp4 ..
-	cp $@ $(OUT)/stremio-tv-$(APP_VERSION).pkg
+	cp $@ $(OUT)/stremio-ps4-$(APP_VERSION).pkg
 
 clean:
 	rm -rf $(OUT)

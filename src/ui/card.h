@@ -4,6 +4,7 @@
 
 #include "../core/models.h"
 #include "screen.h"
+#include "theme.h"
 
 #include <string>
 #include <vector>
@@ -23,6 +24,12 @@ struct Card {
 
 // Draws `c` at (x, y), w x h, scaled up and ringed by its focus.
 void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h);
+
+// Poster card (Library): portrait artwork with the progress bar and badge on
+// it, and the title and subtitle in POSTER_CAPTION_H below it (over the
+// artwork they'd clash with the title printed on most posters).
+constexpr float POSTER_CAPTION_H = theme::S(84);
+void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h);
 
 // Pushes the details screen for `c`.
 void open_details(const Card &c, Fonts &fonts, Navigator &nav);

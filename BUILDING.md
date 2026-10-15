@@ -1,4 +1,4 @@
-# Building Stremio TV
+# Building Stremio PS4
 
 This repository builds two things:
 
@@ -13,7 +13,7 @@ Requirements: Linux x86-64 with Docker or Podman, and an internet connection.
 ./build.sh ps4
 ```
 
-The result is `build_ps4/stremio-tv-<version>.pkg`. The first run builds the
+The result is `build_ps4/stremio-ps4-<version>.pkg`. The first run builds the
 build image and FFmpeg, which takes about 10 minutes. FFmpeg is cached in
 `ffmpeg_ps4/` and reused after that.
 
@@ -66,7 +66,7 @@ Packages needed:
 
 ```sh
 ./build.sh desktop
-build/stremio_tv
+build/stremio_ps4
 ```
 
 | Action | Keys |
@@ -75,10 +75,11 @@ build/stremio_tv
 | Select | Enter / Space |
 | Back | Esc / Backspace |
 | Switch tabs | Q / E (L1 / R1) |
+| Add to / remove from library | T (△) |
 
-The window size can be changed with `STREMIO_TV_WINDOW=WxH`. Set
-`STREMIO_TV_DATA=<dir>` to use another data folder instead of
-`~/.local/share/stremio_tv`.
+The window size can be changed with `STREMIO_PS4_WINDOW=WxH`. Set
+`STREMIO_PS4_DATA=<dir>` to use another data folder instead of
+`~/.local/share/stremio_ps4`.
 
 ### Tests
 
@@ -96,7 +97,7 @@ on every push. They cover:
   new-episode notifications, Continue watching, search, signing out when the
   key is revoked, and the player's watch-progress rules.
 
-`build/stremio_tv_tests <name>` runs only the tests whose name contains
+`build/stremio_ps4_tests <name>` runs only the tests whose name contains
 `<name>`; `TEST_VERBOSE=1` shows the app's log.
 
 ### Developer tools
@@ -106,20 +107,20 @@ are never part of the PS4 package:
 
 | Tool | How |
 |---|---|
-| Demo session: sample library, nothing written to any account | `STREMIO_TV_DEMO=1` |
-| Extra add-ons on top of the account's | `STREMIO_TV_DEMO_ADDONS=<manifest-url>,…` |
-| Scripted runs with screenshots | `STREMIO_TV_SCRIPT="wait 300; r1; wait 30; shot /tmp/s.png; quit"` |
+| Demo session: sample library, nothing written to any account | `STREMIO_PS4_DEMO=1` |
+| Extra add-ons on top of the account's | `STREMIO_PS4_DEMO_ADDONS=<manifest-url>,…` |
+| Scripted runs with screenshots | `STREMIO_PS4_SCRIPT="wait 300; r1; wait 30; shot /tmp/s.png; quit"` |
 | An fps and draw-call counter | on by default in these builds |
 
 ## Debugging on the console
 
-- **App log:** `/data/stremio_tv.log`. Every line is flushed immediately,
+- **App log:** `/data/stremio_ps4.log`. Every line is flushed immediately,
   so it survives crashes.
 - **Kernel log:** `nc <ps4-ip> 3232`, served by GoldHEN. Crash reports
   there show the exception, the thread name and the loaded system modules.
 - **System libraries:** `curl -Q DECRYPT ftp://<ps4-ip>:2121/system/common/lib/X.sprx`
   downloads a system library decrypted, so you can read its imports.
-- **Data folder:** `/data/stremio_tv/` holds the session, the remembered
+- **Data folder:** `/data/stremio_ps4/` holds the session, the remembered
   subtitle and audio languages, and the video player choice from Settings
   (`player.cfg`).
 
@@ -145,7 +146,7 @@ and the PS4 pitfalls it works around.
 
 ## Licences of bundled components
 
-Stremio TV itself is licensed under the GNU GPL v3.0 ([LICENSE](LICENSE)).
+Stremio PS4 itself is licensed under the GNU GPL v3.0 ([LICENSE](LICENSE)).
 
 - **FFmpeg** is built as LGPL 2.1 (no GPL parts) and linked statically. The
   LGPL 2.1 is compatible with the GPL v3.0. Publishing the complete source

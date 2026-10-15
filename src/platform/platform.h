@@ -23,6 +23,7 @@ enum Button : uint32_t {
 	BUTTON_OPTIONS = 1u << 6,
 	BUTTON_L1 = 1u << 7,     // previous tab (keyboard: Q / Page Up)
 	BUTTON_R1 = 1u << 8,     // next tab (keyboard: E / Page Down)
+	BUTTON_TRIANGLE = 1u << 9, // secondary action (keyboard: T)
 	DIRECTIONS = BUTTON_UP | BUTTON_DOWN | BUTTON_LEFT | BUTTON_RIGHT,
 };
 
@@ -49,7 +50,7 @@ void viewport(int &x, int &y, int &w, int &h);
 void log(const char *fmt, ...);
 
 // Writable folder for the session and settings (ends with '/').
-// PS4: /data/stremio_tv/   Desktop: $XDG_DATA_HOME/stremio_tv/ (~/.local/share)
+// PS4: /data/stremio_ps4/   Desktop: $XDG_DATA_HOME/stremio_ps4/ (~/.local/share)
 std::string data_dir();
 
 // Wall-clock time, seconds since the Unix epoch.

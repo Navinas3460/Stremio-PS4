@@ -330,11 +330,11 @@ void Stremio::sync_addons() {
 }
 
 #if defined(STREMIO_DEV)
-// Fetches `urls` plus the add-ons in STREMIO_TV_DEMO_ADDONS (comma-separated
+// Fetches `urls` plus the add-ons in STREMIO_PS4_DEMO_ADDONS (comma-separated
 // manifest URLs), used on top of the account's but never saved to it, and
 // appends them to addons_ in that order, then calls `done`.
 void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void()> done) {
-	if (const char *env = getenv("STREMIO_TV_DEMO_ADDONS")) {
+	if (const char *env = getenv("STREMIO_PS4_DEMO_ADDONS")) {
 		const std::string list = env;
 		for (size_t start = 0; start < list.size();) {
 			size_t end = list.find(',', start);
@@ -541,6 +541,76 @@ void Stremio::search(const std::string &query) {
 const LibraryItem *Stremio::library_item(const std::string &id) const {
 	auto it = library_.find(id);
 	return it == library_.end() ? nullptr : &it->second;
+}
+
+std::vector<const LibraryItem *> Stremio::library(const std::string &type, LibrarySort sort) const {
+	std::vector<const LibraryItem *> items;
+	for (const auto &kv : library_) {
+		if (!kv.second.removed && (type.empty() || kv.second.type == type)) items.push_back(&kv.second);
+	}
+	auto lower = [](std::string s) {
+		for (char &c : s) c = (char)tolower((unsigned char)c);
+		return s;
+	};
+	std::map<const LibraryItem *, std::string> names; // sort keys, lowercased once
+	for (const LibraryItem *item : items) names[item] = lower(item->name);
+	std::stable_sort(items.begin(), items.end(), [&](const LibraryItem *a, const LibraryItem *b) {
+		switch (sort) {
+		case LibrarySort::LAST_WATCHED:
+			if (a->last_watched != b->last_watched) return a->last_watched > b->last_watched;
+			break;
+		case LibrarySort::TIMES_WATCHED:
+			if (a->times_watched != b->times_watched) return a->times_watched > b->times_watched;
+			break;
+		case LibrarySort::NAME:
+			break;
+		}
+		return names[a] < names[b];
+	});
+	return items;
+}
+
+std::vector<std::string> Stremio::library_types() const {
+	std::vector<std::string> types;
+	for (const auto &kv : library_) {
+		const LibraryItem &item = kv.second;
+		if (!item.removed && !item.type.empty() && std::find(types.begin(), types.end(), item.type) == types.end()) {
+			types.push_back(item.type);
+		}
+	}
+	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
+	std::sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
+		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
+	});
+	return types;
+}
+
+bool Stremio::in_library(const std::string &id) const {
+	const LibraryItem *item = library_item(id);
+	return item && !item->removed;
+}
+
+void Stremio::add_to_library(const MetaItem &meta) {
+	LibraryItem item;
+	if (const LibraryItem *existing = library_item(meta.id)) { // LibraryItem::from((meta, item)): keeps the state
+		item = *existing;
+		if (!meta.name.empty()) item.name = meta.name;
+		if (!meta.type.empty()) item.type = meta.type;
+		if (!meta.poster.empty()) item.poster = meta.poster;
+	} else {
+		item = LibraryItem::from_meta(meta, platform::unix_time());
+	}
+	item.removed = false;
+	item.temp = false;
+	push_library_item(item);
+}
+
+void Stremio::remove_from_library(const std::string &id) {
+	const LibraryItem *existing = library_item(id);
+	if (!existing || existing->removed) return;
+	LibraryItem item = *existing;
+	item.removed = true;
+	push_library_item(item);
 }
 
 void Stremio::request_meta(const std::string &type, const std::string &id, MetaCallback cb) {

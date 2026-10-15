@@ -1,6 +1,6 @@
 # Design
 
-Stremio TV is designed for a 1920×1080 canvas viewed from across the room.
+Stremio PS4 is designed for a 1920×1080 canvas viewed from across the room.
 The values below live in `src/ui/theme.h`. Every size there is the base value
 below × 1.15 (`UI_SCALE`), which reads better on a TV.
 
@@ -42,7 +42,7 @@ headings use `BASE_CONTENT`.
 |---|---|---|
 | `RADIUS_FIELD` | 12 px | Cards, buttons, keys, list rows |
 | `RADIUS_BOX` | 24 px | Large panels |
-| `RADIUS_SELECTOR` | pill | Tabs, badges |
+| `RADIUS_SELECTOR` | pill | Tabs, filter chips, badges |
 
 ## Components
 
@@ -52,7 +52,8 @@ component:
 | Component | daisyUI | Where |
 |---|---|---|
 | Focus chrome (`begin_focus` / `end_focus`) | btn, card | Every focusable element |
-| `badge` | badge | "3 new episodes" on cards |
+| `chip` | btn, filter | Tabs, the Library's type and sort filters |
+| `badge` | badge | "3 new episodes" on cards, "In library" |
 | `progress` | progress | Watch progress, the player's timeline |
 | `status` | status | The playing track, the current episode |
 | `avatar` | avatar | The signed-in account on Home |
@@ -60,6 +61,7 @@ component:
 | `Toast` | toast + alert | Short confirmations and errors |
 | Tab bar (`tab_bar.h`) | tabs-box | The four main tabs |
 | Card rows (`card.h`) | carousel | Home and Search |
+| Poster cards (`draw_poster`) | card | The Library grid: artwork, caption below |
 
 ## Focus
 

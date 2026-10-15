@@ -1,7 +1,7 @@
 #!/bin/bash
 # Builds FFmpeg for the PS4 (OpenOrbis) as static libraries with just what
-# Stremio TV needs: common containers (MKV, MP4, TS...), video and audio
-# decoders, subtitles, swscale/swresample. Input comes through our own
+# Stremio PS4 needs: common containers (MKV, MP4, TS...), video and audio
+# decoders, subtitles, WebP (artwork), swscale/swresample. Input comes through our own
 # AVIOContext (HTTPS via libSceHttp), so there are no network protocols.
 # x86 assembly (nasm) matters: HEVC is several times slower without it.
 #
@@ -41,6 +41,7 @@ LIBS="-lc -lkernel -lclang_rt.builtins-x86_64"
   --enable-decoder=h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1 \
   --enable-decoder=aac,aac_latm,ac3,eac3,mp3,mp2,opus,vorbis,flac,dca,truehd,mlp,alac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le \
   --enable-decoder=subrip,ass,ssa,webvtt,mov_text,dvd_subtitle,hdmv_pgs_subtitle \
+  --enable-decoder=webp \
   --enable-parser=h264,hevc,mpeg4video,mpegvideo,vp8,vp9,av1,aac,aac_latm,ac3,mpegaudio,opus,vorbis,flac,dca,mlp \
   --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,extract_extradata \
   --enable-swscale --enable-swresample \

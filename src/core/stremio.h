@@ -81,6 +81,17 @@ public:
 			std::function<void()> on_done);
 	const LibraryItem *library_item(const std::string &id) const;
 
+	// The library page (stremio-core LibraryWithFilters): items that aren't
+	// removed, of `type` ("" = all types), in `sort` order.
+	enum class LibrarySort { LAST_WATCHED, NAME, TIMES_WATCHED };
+	std::vector<const LibraryItem *> library(const std::string &type, LibrarySort sort) const;
+	// The types in the library: movie and series first, then the rest A-Z.
+	std::vector<std::string> library_types() const;
+	bool in_library(const std::string &id) const;
+	// ActionCtx::AddToLibrary / RemoveFromLibrary.
+	void add_to_library(const MetaItem &meta);
+	void remove_from_library(const std::string &id);
+
 	// Player session: port of the library parts of stremio-core's player.rs.
 	// Returns the resume position (ms) for `video_id`, 0 = from the start.
 	int64_t player_start(const std::string &meta_id, const std::string &video_id, const MetaItem *meta);

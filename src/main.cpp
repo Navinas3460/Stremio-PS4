@@ -1,4 +1,4 @@
-// Stremio TV: native PS4 client (OpenOrbis homebrew), also buildable on
+// Stremio PS4: native PS4 client (OpenOrbis homebrew), also buildable on
 // desktop with SDL2 for development. See README.md.
 
 #include "core/stremio.h"
@@ -88,11 +88,11 @@ int main() {
 	Stremio &s = stremio();
 	s.init();
 #if defined(STREMIO_DEV)
-	if (!s.logged_in() && getenv("STREMIO_TV_DEMO")) {
+	if (!s.logged_in() && getenv("STREMIO_PS4_DEMO")) {
 		s.start_demo();
 	}
 #endif
-	platform::log("Stremio TV %s", APP_VERSION);
+	platform::log("Stremio PS4 %s", APP_VERSION);
 	platform::log("ready");
 
 	// Screen stack: sign-in or Home at the bottom (switched whenever the session

@@ -1,4 +1,4 @@
-# Stremio TV for PS4
+# Stremio PS4
 
 An unofficial, native [Stremio](https://www.stremio.com) client for
 jailbroken PlayStation 4 consoles. It's designed for the TV and the
@@ -13,6 +13,9 @@ itself.
   - Continue watching, with progress and new-episode badges.
   - Rows from your add-on catalogues.
 - **Search** across all your add-ons, with an on-screen keyboard.
+- **Library:** everything in your Stremio library as a poster grid, filtered
+  by type and sorted by recently watched, name or most watched. Add or
+  remove titles from their details page with △.
 - **Details:** description, seasons and episodes, and every stream your
   add-ons offer.
 - **Player:**
@@ -35,12 +38,12 @@ itself.
 
 ## Installing
 
-1. Download `stremio-tv-<version>.pkg` from the
+1. Download `stremio-ps4-<version>.pkg` from the
    [releases](../../releases), or [build it yourself](BUILDING.md).
 2. Copy it to the console, for example with GoldHEN's FTP server, into
    `/data/pkg/`.
 3. Install it with GoldHEN's Package Installer.
-4. Open **Stremio TV** and scan the QR code.
+4. Open **Stremio PS4** and scan the QR code.
 
 ## Controls
 
@@ -69,7 +72,7 @@ reproducibly in Docker. The technical background is in
 
 ## License
 
-Stremio TV is free software, licensed under the
+Stremio PS4 is free software, licensed under the
 [GNU General Public License v3.0](LICENSE). It bundles FFmpeg (LGPL 2.1), the
 Inter fonts (SIL Open Font License) and stb (public domain); see
 [BUILDING.md](BUILDING.md#licences-of-bundled-components).
