@@ -2,6 +2,7 @@
 
 #include "../core/stremio.h"
 #include "../platform/platform.h"
+#include "components.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -10,7 +11,6 @@
 namespace {
 
 using theme::S;
-using tabs::approach;
 
 const float W = 1920;
 const float MARGIN_X = 120;
@@ -21,8 +21,8 @@ const float KB_W = KEY_COLS * KEY + (KEY_COLS - 1) * KEY_GAP;
 const float QUERY_H = S(72);
 const float KEYS_TOP = TOP + QUERY_H + S(24);
 const float RESULTS_X = MARGIN_X + KB_W + S(64);
-const float CARD_W = S(330), CARD_H = S(186), CARD_GAP = S(22);
-const float ROW_HEIGHT = S(290), STATUS_ROW_HEIGHT = S(100), ROW_CARDS_OFFSET = S(56);
+const float VIEW_W = W - MARGIN_X - RESULTS_X;
+const CardRowLayout LAYOUT = { S(330), S(186), S(22), S(56), S(290), S(100) };
 const float SEARCH_DELAY = 0.6f;
 
 } // namespace
@@ -71,9 +71,10 @@ void SearchScreen::move_keyboard(int dx, int dy) {
 	if (dx != 0) {
 		const int col = dx > 0 ? k.col + k.span : k.col - 1;
 		if (col >= KEY_COLS) { // off the right edge: into the results
-			if (next_row_with_cards(-1, 1) >= 0) {
+			const int first = next_row_with_cards(rows_, -1, 1);
+			if (first >= 0) {
 				area_ = RESULTS;
-				if (rows_[row_].cards.empty()) row_ = next_row_with_cards(-1, 1);
+				if (rows_[row_].cards.empty()) row_ = first;
 			}
 			return;
 		}
@@ -92,15 +93,8 @@ void SearchScreen::move_keyboard(int dx, int dy) {
 	if (i >= 0) key_ = i;
 }
 
-int SearchScreen::next_row_with_cards(int from, int step) const {
-	for (int i = from + step; i >= 0 && i < (int)rows_.size(); i += step) {
-		if (!rows_[i].cards.empty()) return i;
-	}
-	return -1;
-}
-
 void SearchScreen::move_results(int dx, int dy) {
-	Row &row = rows_[row_];
+	CardRow &row = rows_[row_];
 	if (dx != 0) {
 		if (dx < 0 && row.selected == 0) {
 			area_ = KEYBOARD; // off the left edge: back to the keyboard
@@ -109,7 +103,7 @@ void SearchScreen::move_results(int dx, int dy) {
 		row.selected = std::clamp(row.selected + dx, 0, (int)row.cards.size() - 1);
 		return;
 	}
-	const int target = next_row_with_cards(row_, dy);
+	const int target = next_row_with_cards(rows_, row_, dy);
 	if (target >= 0) {
 		row_ = target;
 	} else if (dy > 0) {
@@ -120,35 +114,18 @@ void SearchScreen::move_results(int dx, int dy) {
 void SearchScreen::rebuild_rows() {
 	Stremio &s = stremio();
 	seen_search_rev_ = s.search_rev;
-	std::vector<Row> rows;
+	std::vector<CardRow> rows;
 	for (const BoardRow &b : s.search_results()) {
-		Row row;
-		row.title = b.title;
-		if (b.loading) {
-			row.status = "Searching\xE2\x80\xA6";
-		} else if (!b.error.empty()) {
-			row.status = "Couldn't search this catalog: " + b.error;
-			row.status_is_error = true;
-		} else if (b.items.empty()) {
-			continue;
-		}
-		for (const MetaItem &m : b.items) row.cards.push_back(Card::from_meta(m));
-		// Keep the position in rows that are still there.
-		for (const Row &old : rows_) {
-			if (old.title == row.title) {
-				row.selected = std::min(old.selected, std::max(0, (int)row.cards.size() - 1));
-				row.scroll = old.scroll;
-			}
-		}
-		rows.push_back(row);
+		CardRow row;
+		if (CardRow::from_board(b, "Searching\xE2\x80\xA6", "Couldn't search this catalog: ", row)) rows.push_back(row);
 	}
+	carry_over(rows, rows_); // keep the position in rows that are still there
 	rows_.swap(rows);
 	// Until the user is in the results, focus (and scrolling) stays on the
 	// first row with cards, whichever row's results arrive first.
-	if (area_ != RESULTS || row_ >= (int)rows_.size() || rows_[row_].cards.empty()) {
-		row_ = std::max(0, next_row_with_cards(-1, 1));
-	}
-	if (area_ == RESULTS && next_row_with_cards(-1, 1) < 0) area_ = KEYBOARD;
+	const int first = next_row_with_cards(rows_, -1, 1);
+	if (area_ != RESULTS || row_ >= (int)rows_.size() || rows_[row_].cards.empty()) row_ = std::max(0, first);
+	if (area_ == RESULTS && first < 0) area_ = KEYBOARD;
 }
 
 void SearchScreen::update(double dt, uint32_t pressed) {
@@ -176,7 +153,7 @@ void SearchScreen::update(double dt, uint32_t pressed) {
 		if (pressed & platform::BUTTON_DOWN) move_results(0, 1);
 		if (pressed & platform::BUTTON_BACK) area_ = KEYBOARD;
 		if ((pressed & platform::BUTTON_ACCEPT) && area_ == RESULTS) {
-			const Row &row = rows_[row_];
+			const CardRow &row = rows_[row_];
 			open_details(row.cards[row.selected], fonts_, navigator_);
 		}
 	}
@@ -188,79 +165,49 @@ void SearchScreen::update(double dt, uint32_t pressed) {
 	cursor_time_ += (float)dt;
 
 	for (int i = 0; i < (int)keys_.size(); i++) {
-		keys_[i].focus = approach(keys_[i].focus, (area_ == KEYBOARD && i == key_) ? 1.0f : 0.0f, dt);
+		keys_[i].focus = ui::approach(keys_[i].focus, (area_ == KEYBOARD && i == key_) ? 1.0f : 0.0f, dt);
 	}
-	const float visible = W - MARGIN_X - RESULTS_X;
-	for (int r = 0; r < (int)rows_.size(); r++) {
-		Row &row = rows_[r];
-		for (int i = 0; i < (int)row.cards.size(); i++) {
-			const bool focused = area_ == RESULTS && r == row_ && i == row.selected;
-			row.cards[i].focus = approach(row.cards[i].focus, focused ? 1.0f : 0.0f, dt);
-		}
-		const float left = row.selected * (CARD_W + CARD_GAP);
-		float target = row.scroll;
-		if (left - target < 0) target = left;
-		if (left + CARD_W - target > visible) target = left + CARD_W - visible;
-		row.scroll = approach(row.scroll, target, dt);
-	}
+	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], area_ == RESULTS && r == row_, LAYOUT, VIEW_W, dt);
 	// Keep the focused row in view.
 	float top = 0;
-	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += rows_[i].cards.empty() ? STATUS_ROW_HEIGHT : ROW_HEIGHT;
-	const float band = tabs::CONTENT_BOTTOM - TOP;
-	float target = content_scroll_;
-	if (top - target < 0) target = top;
-	if (top + ROW_HEIGHT - target > band) target = top + ROW_HEIGHT - band;
-	content_scroll_ = approach(content_scroll_, target, dt);
+	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += row_height(rows_[i], LAYOUT);
+	content_scroll_ = ui::follow(content_scroll_, top, LAYOUT.height, tabs::CONTENT_BOTTOM - TOP, dt);
 	bar_.update(dt, area_ == BAR);
 }
 
 void SearchScreen::draw(Renderer &r) {
-	const Color bg = theme::BRAND_TERTIARY;
-
 	// Results (drawn first: the header and keyboard bands cover the overflow).
-	float y = TOP - content_scroll_;
-	const float max_w = W - MARGIN_X - RESULTS_X;
 	if (rows_.empty()) {
+		const bool searching = search_delay_ > 0 || query_ != stremio().search_query();
 		const std::string hint = query_.empty() ? "Search for movies and series with the keyboard"
-				: (search_delay_ > 0 || query_ != stremio().search_query()) ? "" : "No results for \"" + query_ + "\"";
-		r.text(fonts_.body, fonts_.body.ellipsize(hint, max_w), RESULTS_X, TOP + S(40), theme::TEXT_MUTED);
+				: searching ? "" : "No results for \"" + query_ + "\"";
+		r.text(fonts_.body, fonts_.body.ellipsize(hint, VIEW_W), RESULTS_X, TOP + S(40), theme::BASE_CONTENT_MUTED);
 	}
-	for (int ri = 0; ri < (int)rows_.size(); ri++) {
-		Row &row = rows_[ri];
-		const float h = row.cards.empty() ? STATUS_ROW_HEIGHT : ROW_HEIGHT;
-		if (y < tabs::CONTENT_BOTTOM && y + h > 0) {
-			r.text(fonts_.section, fonts_.section.ellipsize(row.title, max_w), RESULTS_X, y + S(34), theme::SECTION_TITLE);
-			if (row.cards.empty()) {
-				r.text(fonts_.body, fonts_.body.ellipsize(row.status, max_w), RESULTS_X, y + S(80),
-						row.status_is_error ? rgb(0xFF8A80) : theme::TEXT_MUTED);
-			} else {
-				for (int pass = 0; pass < 2; pass++) { // focused card last (on top)
-					for (int i = 0; i < (int)row.cards.size(); i++) {
-						if ((pass == 0) == (row.cards[i].focus > 0.5f)) continue;
-						const float x = RESULTS_X + i * (CARD_W + CARD_GAP) - row.scroll;
-						if (x > W + 40 || x + CARD_W < RESULTS_X - 40) continue;
-						draw_card(r, fonts_, row.cards[i], x, y + ROW_CARDS_OFFSET, CARD_W, CARD_H);
-					}
-				}
-			}
-		}
+	float y = TOP - content_scroll_;
+	for (const CardRow &row : rows_) {
+		const float h = row_height(row, LAYOUT);
+		if (y < tabs::CONTENT_BOTTOM && y + h > 0) draw_row(r, fonts_, row, LAYOUT, RESULTS_X, y, VIEW_W);
 		y += h;
 	}
 
 	// Left band: query + keyboard (covers cards scrolled to the left).
-	r.rect(0, TOP - S(10), RESULTS_X - S(24), tabs::CONTENT_BOTTOM - TOP + S(10), bg);
-	r.rect(0, 0, W, TOP - S(10), bg);
-	r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::TEXT);
+	r.rect(0, TOP - S(10), RESULTS_X - S(24), tabs::CONTENT_BOTTOM - TOP + S(10), theme::BASE_100);
+	r.rect(0, 0, W, TOP - S(10), theme::BASE_100);
+	r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::BASE_CONTENT);
 
-	r.rounded_rect(MARGIN_X, TOP, KB_W, QUERY_H, theme::RADIUS_CARD, theme::SURFACE);
+	// The query field (daisyUI input): ringed while typing.
+	const float ring = area_ == KEYBOARD ? 1.0f : 0.0f;
+	ui::begin_focus(r, MARGIN_X, TOP, KB_W, QUERY_H, theme::RADIUS_FIELD, ring, 1.0f, theme::BASE_300);
+	r.rounded_rect(MARGIN_X, TOP, KB_W, QUERY_H, theme::RADIUS_FIELD, theme::BASE_200);
+	r.pop();
 	const float qx = MARGIN_X + S(20), qy = TOP + QUERY_H / 2 + S(10);
 	if (query_.empty()) {
-		r.text(fonts_.card_title, "Type a title", qx, qy, theme::TEXT_MUTED);
+		r.text(fonts_.card_title, "Type a title", qx, qy, theme::BASE_CONTENT_MUTED);
 	} else {
 		const std::string shown = query_.size() > 26 ? "\xE2\x80\xA6" + query_.substr(query_.size() - 25) : query_;
-		r.text(fonts_.card_title, shown, qx, qy, theme::TEXT);
+		r.text(fonts_.card_title, shown, qx, qy, theme::BASE_CONTENT);
 		if (std::fmod(cursor_time_, 1.0f) < 0.6f) {
-			r.rect(qx + fonts_.card_title.measure(shown) + S(3), TOP + S(18), S(3), QUERY_H - S(36), theme::BRAND_PRIMARY);
+			r.rect(qx + fonts_.card_title.measure(shown) + S(3), TOP + S(18), S(3), QUERY_H - S(36), theme::PRIMARY);
 		}
 	}
 
@@ -269,18 +216,14 @@ void SearchScreen::draw(Renderer &r) {
 		const float ky = KEYS_TOP + k.row * (KEY + KEY_GAP);
 		const float w = k.span * KEY + (k.span - 1) * KEY_GAP;
 		const float f = k.focus;
-		r.push(x + w / 2, ky + KEY / 2, 1.0f + (theme::FOCUS_SCALE - 1.0f) * f, 1.0f);
-		if (f > 0.02f) {
-			r.rounded_rect(x - S(3), ky - S(3), w + S(6), KEY + S(6), theme::RADIUS_CARD + S(3), theme::BRAND_PRIMARY.with_alpha(f));
-		}
-		r.rounded_rect(x, ky, w, KEY, theme::RADIUS_CARD, f > 0.5f ? mix(theme::SURFACE, theme::BRAND_PRIMARY, 0.35f) : theme::SURFACE);
+		ui::begin_focus(r, x, ky, w, KEY, theme::RADIUS_FIELD, f);
+		r.rounded_rect(x, ky, w, KEY, theme::RADIUS_FIELD, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
 		Font &font = k.span > 1 ? fonts_.body : fonts_.card_title;
-		const float lw = font.measure(k.label);
-		r.text(font, k.label, x + (w - lw) / 2, ky + KEY / 2 + S(9), theme::TEXT);
-		r.pop();
+		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + KEY / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
+		r.pop(); // keys stay bright: the whole keyboard is one control
 	}
-	const float hint_y = KEYS_TOP + (keys_.back().row + 1) * (KEY + KEY_GAP) + S(20);
-	r.text(fonts_.body, "\xE2\x97\x8B Delete  \xC2\xB7  \xE2\x96\xB6 Results", MARGIN_X, hint_y, theme::TEXT_MUTED);
+	const float hint_y = KEYS_TOP + (keys_.back().row + 1) * (KEY + KEY_GAP) + S(30);
+	ui::hints(r, fonts_.small, { { "\xE2\x97\x8B", "Delete" }, { "\xE2\x96\xB6", "Results" } }, MARGIN_X, hint_y);
 
 	bar_.draw(r, fonts_);
 }

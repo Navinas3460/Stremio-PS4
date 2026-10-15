@@ -1,5 +1,5 @@
-// A title card (landscape artwork, title, subtitle, progress, badge) as used
-// in the Home and Search rows, and opening its details.
+// Title cards (landscape artwork, title, subtitle, progress, badge) and the
+// rows of them used by Home and Search, plus opening a card's details.
 #pragma once
 
 #include "../core/models.h"
@@ -7,6 +7,8 @@
 
 #include <string>
 #include <vector>
+
+struct BoardRow;
 
 struct Card {
 	std::string title, subtitle, badge;
@@ -24,3 +26,37 @@ void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float
 
 // Pushes the details screen for `c`.
 void open_details(const Card &c, Fonts &fonts, Navigator &nav);
+
+// A titled, horizontally scrolling row of cards; without cards it shows a
+// status line instead (loading, error).
+struct CardRow {
+	std::string title, status;
+	bool status_is_error = false;
+	std::vector<Card> cards;
+	int selected = 0;
+	float scroll = 0; // animated x offset
+
+	// Row for an add-on catalog. False if there's nothing to show.
+	static bool from_board(const BoardRow &b, const std::string &loading, const std::string &error_prefix, CardRow &out);
+};
+
+// Geometry of a row of cards.
+struct CardRowLayout {
+	float card_w, card_h, gap;
+	float cards_offset; // title top -> cards top
+	float height;       // with cards
+	float status_height; // without cards
+};
+
+// Index of the next row with cards after `from` in direction `step`, or -1.
+int next_row_with_cards(const std::vector<CardRow> &rows, int from, int step);
+// Keeps the selection, scroll and focus animation of rows (by title) that
+// existed before a rebuild.
+void carry_over(std::vector<CardRow> &rows, const std::vector<CardRow> &old);
+float row_height(const CardRow &row, const CardRowLayout &l);
+// Animates card focus (`focused` = this row has the focus) and the scroll
+// that keeps the selected card in a `view` px wide window.
+void update_row(CardRow &row, bool focused, const CardRowLayout &l, float view, double dt);
+// Title and cards (or the status line) at (x, y), `view` px wide; the focused
+// card is drawn last so it overlaps its neighbours.
+void draw_row(Renderer &r, Fonts &fonts, const CardRow &row, const CardRowLayout &l, float x, float y, float view);

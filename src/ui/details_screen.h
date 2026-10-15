@@ -4,6 +4,7 @@
 #pragma once
 
 #include "../core/models.h"
+#include "components.h"
 #include "screen.h"
 
 #include <memory>
@@ -29,9 +30,14 @@ private:
 	void on_meta(const MetaItem &meta);
 	void load_streams(const std::string &video_id);
 	void play(const StreamItem &stream);
-	void draw_list(Renderer &r, ListState &list, const std::vector<std::string> &lines1,
-			const std::vector<std::string> &lines2, const std::vector<bool> &muted, int active, bool focused, float x,
-			float y, float w, float h);
+	// One row of a list: a title, an optional second line, greyed out if
+	// `muted`.
+	struct ListRow {
+		std::string line1, line2;
+		bool muted = false;
+	};
+	void draw_list(Renderer &r, ListState &list, const std::vector<ListRow> &rows, int active, float x, float y, float w,
+			float h);
 
 	Fonts &fonts_;
 	Navigator &nav_;
@@ -50,6 +56,5 @@ private:
 
 	ListState episodes_list_, streams_list_;
 	int column_ = 1; // 0 = episodes, 1 = streams
-	std::string toast_;
-	float toast_time_ = 0;
+	ui::Toast toast_;
 };

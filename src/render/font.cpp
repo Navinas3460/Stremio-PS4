@@ -34,8 +34,6 @@ bool Font::load(const std::string &path, int pixel_size) {
 	}
 	FT_Set_Pixel_Sizes(face_, 0, pixel_size);
 	size_ = pixel_size;
-	ascent_ = face_->size->metrics.ascender / 64.0f;
-	line_height_ = face_->size->metrics.height / 64.0f;
 	pixels_.assign((size_t)ATLAS * ATLAS * 4, 0);
 	for (size_t i = 0; i < pixels_.size(); i += 4) {
 		pixels_[i] = pixels_[i + 1] = pixels_[i + 2] = 255;
@@ -110,16 +108,45 @@ std::string Font::ellipsize(const std::string &utf8, float max_width) {
 	float w = 0;
 	size_t i = 0, cut = 0;
 	while (i < utf8.size()) {
-		const size_t start = i;
 		const float adv = glyph(next_codepoint(utf8, i)).advance;
 		if (w + adv > limit) {
 			break;
 		}
 		w += adv;
 		cut = i;
-		(void)start;
 	}
 	return utf8.substr(0, cut) + dots;
+}
+
+std::vector<std::string> Font::wrap(const std::string &utf8, float max_width, int max_lines) {
+	std::vector<std::string> lines;
+	size_t start = 0;
+	while (start <= utf8.size()) {
+		size_t end = utf8.find('\n', start);
+		if (end == std::string::npos) end = utf8.size();
+		std::string line;
+		for (size_t i = start; i <= end;) {
+			size_t space = utf8.find(' ', i);
+			if (space == std::string::npos || space > end) space = end;
+			const std::string word = utf8.substr(i, space - i);
+			i = space + 1;
+			if (word.empty()) continue;
+			const std::string candidate = line.empty() ? word : line + " " + word;
+			if (!line.empty() && measure(candidate) > max_width) {
+				lines.push_back(line);
+				line = word;
+			} else {
+				line = candidate;
+			}
+		}
+		if (!line.empty()) lines.push_back(line);
+		start = end + 1;
+	}
+	if (max_lines > 0 && (int)lines.size() > max_lines) {
+		lines.resize(max_lines);
+		lines.back() = ellipsize(lines.back() + " \xE2\x80\xA6", max_width);
+	}
+	return lines;
 }
 
 float Font::draw(Renderer &r, const std::string &utf8, float x, float baseline, const Color &c) {

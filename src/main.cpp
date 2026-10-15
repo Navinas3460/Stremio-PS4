@@ -21,7 +21,6 @@ namespace {
 const int WIDTH = 1920, HEIGHT = 1080;
 const int HTTP_WORKERS = 4;
 const double REPEAT_DELAY = 0.4, REPEAT_INTERVAL = 0.12;
-const uint32_t REPEATING = platform::BUTTON_UP | platform::BUTTON_DOWN | platform::BUTTON_LEFT | platform::BUTTON_RIGHT;
 
 // Turns held buttons into "pressed this frame" events, with TV-style
 // auto-repeat for the directions.
@@ -31,7 +30,7 @@ public:
 		uint32_t pressed = held & ~previous_;
 		for (int bit = 0; bit < 32; bit++) {
 			const uint32_t b = 1u << bit;
-			if (!(REPEATING & b)) {
+			if (!(platform::DIRECTIONS & b)) {
 				continue;
 			}
 			if (pressed & b) {
@@ -149,7 +148,7 @@ int main() {
 
 		Screen &top = *stack.screens.back();
 		top.update(dt, input.update(held, now));
-		renderer.begin_frame(theme::BRAND_TERTIARY);
+		renderer.begin_frame(theme::BASE_100);
 		top.draw(renderer);
 		renderer.end_frame();
 		platform::present();

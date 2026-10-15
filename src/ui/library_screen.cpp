@@ -11,7 +11,7 @@ void LibraryScreen::update(double dt, uint32_t pressed) {
 }
 
 void LibraryScreen::draw(Renderer &r) {
-	r.text(fonts_.page_header, "Library", 120, S(96), theme::TEXT);
-	r.text(fonts_.body, "Your full library is coming soon. Continue watching is on Home.", 120, S(190), theme::TEXT_MUTED);
+	r.text(fonts_.page_header, "Library", 120, S(96), theme::BASE_CONTENT);
+	r.text(fonts_.body, "Your full library is coming soon. Continue watching is on Home.", 120, S(190), theme::BASE_CONTENT_MUTED);
 	bar_.draw(r, fonts_);
 }

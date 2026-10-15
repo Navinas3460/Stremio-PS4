@@ -19,7 +19,6 @@ const double SEEK_STEP = 10.0;
 const double SEEK_APPLY_DELAY = 0.6; // wait for more presses before seeking
 const double OVERLAY_HIDE = 4.0;
 const double REPORT_EVERY = 1.0;
-const float TOAST_SECONDS = 2.5f;
 
 // Panel layout (right side).
 const float PANEL_W = S(900);
@@ -60,35 +59,6 @@ bool same_language(const std::string &a, const std::string &b) {
 	return language_name(a) == language_name(b);
 }
 
-// Splits on '\n' and wraps each line to `max_w`.
-std::vector<std::string> wrap_lines(Font &font, const std::string &text, float max_w) {
-	std::vector<std::string> out;
-	size_t start = 0;
-	while (start <= text.size()) {
-		size_t end = text.find('\n', start);
-		if (end == std::string::npos) end = text.size();
-		const std::string para = text.substr(start, end - start);
-		std::string line;
-		size_t i = 0;
-		while (i <= para.size()) {
-			size_t sp = para.find(' ', i);
-			if (sp == std::string::npos) sp = para.size();
-			const std::string word = para.substr(i, sp - i);
-			const std::string candidate = line.empty() ? word : line + " " + word;
-			if (!line.empty() && font.measure(candidate) > max_w) {
-				out.push_back(line);
-				line = word;
-			} else {
-				line = candidate;
-			}
-			i = sp + 1;
-		}
-		if (!line.empty()) out.push_back(line);
-		start = end + 1;
-	}
-	return out;
-}
-
 } // namespace
 
 PlayerScreen::PlayerScreen(Fonts &fonts, Navigator &nav, const Args &args)
@@ -122,11 +92,6 @@ PlayerScreen::~PlayerScreen() {
 
 void PlayerScreen::show_overlay() {
 	overlay_timer_ = OVERLAY_HIDE;
-}
-
-void PlayerScreen::show_toast(const std::string &text) {
-	toast_ = text;
-	toast_time_ = TOAST_SECONDS;
 }
 
 void PlayerScreen::exit() {
@@ -203,19 +168,19 @@ void PlayerScreen::choose_subtitle(const SubtitleOption &option, bool remember) 
 	addon_cues_for_ = -1;
 	const SubtitleItem item = addon_subs_[option.id];
 	const int index = option.id;
-	if (remember) show_toast("Loading subtitles\xE2\x80\xA6");
+	if (remember) toast_.show("Loading subtitles\xE2\x80\xA6");
 	std::weak_ptr<int> alive = alive_;
 	http::get(item.url, [this, alive, index](http::Response &res) {
 		if (alive.expired() || sub_kind_ != SubtitleOption::ADDON || sub_id_ != index) return;
 		std::vector<SubtitleCue> cues;
 		if (!res.ok() || !parse_subtitles(res.body, cues)) {
 			platform::log("player: subtitles failed (%s, HTTP %d)", res.error.c_str(), res.status);
-			show_toast("Couldn't load these subtitles");
+			toast_.show("Couldn't load these subtitles", true);
 			return;
 		}
 		addon_cues_.swap(cues);
 		addon_cues_for_ = index;
-		toast_time_ = 0;
+		toast_.hide();
 		platform::log("player: %zu subtitle cues", addon_cues_.size());
 	});
 }
@@ -361,14 +326,9 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 	overlay_ += (target - overlay_) * std::min(1.0f, (float)dt * 8.0f);
 	menu_ += ((menu_open_ ? 1.0f : 0.0f) - menu_) * std::min(1.0f, (float)dt * 10.0f);
 	for (Column &c : columns_) {
-		const float top = c.selected * (ROW_H + ROW_GAP);
-		const float band = LIST_BOTTOM - LIST_TOP;
-		float t = c.scroll;
-		if (top - t < 0) t = top;
-		if (top + ROW_H - t > band) t = top + ROW_H - band;
-		c.scroll += (t - c.scroll) * std::min(1.0f, (float)dt * 10.0f);
+		c.scroll = ui::follow(c.scroll, c.selected * (ROW_H + ROW_GAP), ROW_H, LIST_BOTTOM - LIST_TOP, dt);
 	}
-	if (toast_time_ > 0) toast_time_ -= (float)dt;
+	toast_.update(dt);
 }
 
 void PlayerScreen::draw_subtitles(Renderer &r, float vx, float vy, float vw, float vh) {
@@ -385,7 +345,7 @@ void PlayerScreen::draw_subtitles(Renderer &r, float vx, float vy, float vw, flo
 	}
 	if (text.empty()) return;
 	Font &f = fonts_.subtitle;
-	const std::vector<std::string> lines = wrap_lines(f, text, std::min(vw, W) * 0.8f);
+	const std::vector<std::string> lines = f.wrap(text, std::min(vw, W) * 0.8f);
 	const float line_h = theme::SIZE_SUBTITLE * 1.3f;
 	// Above the controls while they show.
 	float bottom = std::min(vy + vh, H) - S(56);
@@ -401,36 +361,33 @@ void PlayerScreen::draw_subtitles(Renderer &r, float vx, float vy, float vw, flo
 }
 
 void PlayerScreen::draw_menu(Renderer &r) {
-	const float a = menu_;
-	r.rect(PANEL_X, 0, PANEL_W, H, rgb(0x051923, 0.94f * a));
-	r.text(fonts_.page_header, "Audio & subtitles", COL_SUB_X, S(96), theme::TEXT.with_alpha(a));
+	r.push(W / 2, H / 2, 1.0f, menu_); // fades in and out as a whole
+	r.rect(PANEL_X, 0, PANEL_W, H, theme::BASE_100.with_alpha(0.94f));
+	r.text(fonts_.page_header, "Audio & subtitles", COL_SUB_X, S(96), theme::BASE_CONTENT);
 
 	auto column = [&](int index, const char *title, float x, float w, const std::vector<std::pair<std::string, std::string>> &rows,
 						  int active) {
 		const bool focused = menu_column_ == index;
-		r.text(fonts_.section, title, x, LIST_TOP - S(24), (focused ? theme::SECTION_TITLE : theme::TEXT_MUTED).with_alpha(a));
+		r.text(fonts_.section, title, x, LIST_TOP - S(24), focused ? theme::BASE_CONTENT : theme::BASE_CONTENT_MUTED);
 		const Column &col = columns_[index];
+		const float R = theme::RADIUS_FIELD;
 		for (int i = 0; i < (int)rows.size(); i++) {
 			const float y = LIST_TOP + i * (ROW_H + ROW_GAP) - col.scroll;
 			if (y + ROW_H < LIST_TOP - S(4) || y > LIST_BOTTOM) continue;
-			const bool sel = focused && i == col.selected;
-			if (sel) r.rounded_rect(x - S(4), y - S(4), w + S(8), ROW_H + S(8), theme::RADIUS_CARD + S(4), theme::BRAND_PRIMARY.with_alpha(a));
-			r.rounded_rect(x, y, w, ROW_H, theme::RADIUS_CARD, (sel ? mix(theme::SURFACE, theme::BRAND_PRIMARY, 0.3f) : theme::SURFACE).with_alpha(a));
-			float tx = x + S(20);
-			if (i == active) { // the track in use
-				r.rounded_rect(tx, y + ROW_H / 2 - S(6), S(12), S(12), S(6), theme::STATUS_ACCENT.with_alpha(a));
-			}
-			tx += S(26);
+			const float sel = (focused && i == col.selected) ? 1.0f : 0.0f;
+			ui::begin_focus(r, x, y, w, ROW_H, R, sel, 1.0f);
+			r.rounded_rect(x, y, w, ROW_H, R, mix(theme::BASE_200, theme::PRIMARY, 0.3f * sel));
+			if (i == active) ui::status(r, x + S(26), y + ROW_H / 2); // the track in use
+			const float tx = x + S(46), tw = w - (tx - x) - S(16);
 			const bool two_lines = !rows[i].second.empty();
 			const float label_y = two_lines ? y + S(31) : y + ROW_H / 2 + S(9);
-			r.text(fonts_.card_title, fonts_.card_title.ellipsize(rows[i].first, w - (tx - x) - S(16)), tx, label_y,
-					theme::TEXT.with_alpha(a));
+			r.text(fonts_.card_title, fonts_.card_title.ellipsize(rows[i].first, tw), tx, label_y, theme::BASE_CONTENT);
 			if (two_lines) {
-				r.text(fonts_.small, fonts_.small.ellipsize(rows[i].second, w - (tx - x) - S(16)), tx, y + S(56),
-						theme::TEXT_MUTED.with_alpha(a));
+				r.text(fonts_.small, fonts_.small.ellipsize(rows[i].second, tw), tx, y + S(56), theme::BASE_CONTENT_MUTED);
 			}
+			r.pop();
 		}
-		if (rows.empty()) r.text(fonts_.body, "None in this video", x, LIST_TOP + S(30), theme::TEXT_MUTED.with_alpha(a));
+		if (rows.empty()) r.text(fonts_.body, "None in this video", x, LIST_TOP + S(30), theme::BASE_CONTENT_MUTED);
 	};
 
 	std::vector<std::pair<std::string, std::string>> subs, audio;
@@ -453,8 +410,9 @@ void PlayerScreen::draw_menu(Renderer &r) {
 	}
 	column(0, "Subtitles", COL_SUB_X, COL_SUB_W, subs, active_sub);
 	column(1, "Audio", COL_AUDIO_X, COL_AUDIO_W, audio, active_audio);
-	const std::string hint = "\xC3\x97 Select    \xE2\x97\x80 \xE2\x96\xB6 Column    \xE2\x97\x8B Close";
-	r.text(fonts_.body, hint, COL_SUB_X, H - S(52), theme::TEXT_MUTED.with_alpha(a));
+	ui::hints(r, fonts_.small, { { "\xC3\x97", "Select" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Column" }, { "\xE2\x97\x8B", "Close" } },
+			COL_SUB_X, H - S(52));
+	r.pop();
 }
 
 void PlayerScreen::draw(Renderer &r) {
@@ -496,42 +454,32 @@ void PlayerScreen::draw(Renderer &r) {
 	if (!status.empty() && menu_ < 0.5f) {
 		Font &f = fonts_.card_title;
 		const std::string shown = f.ellipsize(status, W - 240);
-		r.text(f, shown, (W - f.measure(shown)) / 2, H / 2, error ? rgb(0xFF8A80) : theme::TEXT);
+		r.text(f, shown, (W - f.measure(shown)) / 2, H / 2, error ? theme::ERROR : theme::BASE_CONTENT);
 	}
 
 	// Bottom overlay: title, progress, times, hints.
 	if (overlay_ > 0.01f && state != VideoPlayer::FAILED && menu_ < 0.99f) {
-		const float a = overlay_ * (1.0f - menu_);
-		r.vertical_fade(0, H - S(330), W, S(330), rgb(0x000000), 0.0f, 0.85f * a);
+		r.push(W / 2, H / 2, 1.0f, overlay_ * (1.0f - menu_));
+		r.vertical_fade(0, H - S(330), W, S(330), rgb(0x000000), 0.0f, 0.85f);
 		const float x = 120, right = W - 120;
-		float y = H - S(150);
-		r.text(fonts_.page_header, fonts_.page_header.ellipsize(args_.title, right - x), x, y, theme::TEXT.with_alpha(a));
-		if (!args_.subtitle.empty()) {
-			r.text(fonts_.body, args_.subtitle, x, y + S(36), theme::TEXT_MUTED.with_alpha(a));
-		}
+		const float y = H - S(150);
+		r.text(fonts_.page_header, fonts_.page_header.ellipsize(args_.title, right - x), x, y, theme::BASE_CONTENT);
+		if (!args_.subtitle.empty()) r.text(fonts_.body, args_.subtitle, x, y + S(36), theme::BASE_CONTENT_MUTED);
 		const double duration = player_->duration();
 		const double position = pending_seek_ >= 0 ? pending_seek_ : player_->position();
-		const float bar_y = H - S(72), bar_h = S(8);
-		r.rounded_rect(x, bar_y, right - x, bar_h, bar_h / 2, rgb(0xFFFFFF, 0.25f * a));
-		if (duration > 0) {
-			r.rounded_rect(x, bar_y, (float)((right - x) * std::min(1.0, position / duration)), bar_h, bar_h / 2,
-					theme::BRAND_PRIMARY.with_alpha(a));
-		}
+		const float bar_y = H - S(72);
+		ui::progress(r, x, bar_y, right - x, S(8), duration > 0 ? (float)(position / duration) : 0.0f);
 		const float ty = bar_y + S(42);
-		r.text(fonts_.body, format_time(position), x, ty, theme::TEXT.with_alpha(a));
+		r.text(fonts_.body, format_time(position), x, ty, theme::BASE_CONTENT);
 		const std::string total = format_time(duration);
-		r.text(fonts_.body, total, right - fonts_.body.measure(total), ty, theme::TEXT.with_alpha(a));
-		const std::string hint =
-				"\xC3\x97 Play / Pause    \xE2\x97\x80 \xE2\x96\xB6 Seek    \xE2\x96\xB2 Audio & subtitles    \xE2\x97\x8B Back";
-		r.text(fonts_.body, hint, (W - fonts_.body.measure(hint)) / 2, ty, theme::TEXT_MUTED.with_alpha(a));
+		r.text(fonts_.body, total, right - fonts_.body.measure(total), ty, theme::BASE_CONTENT);
+		const std::vector<ui::Hint> hints = { { "\xC3\x97", "Play / Pause" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Seek" },
+			{ "\xE2\x96\xB2", "Audio & subtitles" }, { "\xE2\x97\x8B", "Back" } };
+		ui::hints(r, fonts_.small, hints, (W - ui::hints_width(fonts_.small, hints)) / 2, ty);
+		r.pop();
 	}
 
 	if (menu_ > 0.01f) draw_menu(r);
 
-	if (toast_time_ > 0) {
-		const float a = std::min(1.0f, toast_time_ / 0.3f);
-		const float tw = fonts_.body.measure(toast_);
-		r.rounded_rect((W - tw) / 2 - S(20), S(40), tw + S(40), S(50), S(12), rgb(0x000000, 0.7f * a));
-		r.text(fonts_.body, toast_, (W - tw) / 2, S(73), theme::STATUS_ACCENT.with_alpha(a));
-	}
+	toast_.draw(r, fonts_.body, W / 2, S(40));
 }

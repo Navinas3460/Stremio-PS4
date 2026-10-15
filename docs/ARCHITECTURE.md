@@ -23,7 +23,7 @@ SSE2, because there is no YUV shader.
 | `src/render/` | Renderer (rectangles, rounded shapes, images, fades, text) and FreeType glyph atlas | same |
 | `src/core/` | JSON, Stremio models, the `Stremio` facade (session, QR sign-in, library, add-ons, Continue watching, notifications, catalogs, search, player progress rules), subtitle parsing | same |
 | `src/net/` | Async HTTP (`http_ps4.cpp`: libSceHttp), image cache, parallel range reader for video | `http_curl.cpp`: libcurl |
-| `src/ui/` | Screens: sign-in, Home, Search, Library, Settings, details, player; theme tokens | same |
+| `src/ui/` | Screens: sign-in, Home, Search, Library, Settings, details, player; theme tokens and shared components (docs/DESIGN.md) | same |
 | `src/video/` | FFmpeg player (default) and AvPlayer hardware player | FFmpeg player |
 
 The `Stremio` facade ports the parts of
@@ -49,7 +49,7 @@ The `Stremio` facade ports the parts of
 - **`video_avplayer.cpp`:**
   - The PS4's hardware decoder, for MP4/H.264, with `sceAudioOut` for sound.
   - AvPlayer reads through its file-replacement callbacks, which are
-    answered by an I/O thread doing HTTP Range requests.
+    answered on an I/O thread from the same `RangeReader` as FFmpeg.
   - It can be selected in Settings.
 - **`nv12.h`:** SSE2 YUV 4:2:0 → RGBA conversion for NV12, I420 and 10-bit
   planar input. It takes about 4 ms per 1080p frame on a PS4.

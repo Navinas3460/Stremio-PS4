@@ -5,6 +5,7 @@
 #   ./build.sh ps4 --local    PS4 package with a locally installed toolchain
 #   ./build.sh desktop        desktop build (SDL2 + FFmpeg), for development
 #   ./build.sh desktop --dev  same, with developer tools (demo session, scripts)
+#   ./build.sh test           unit tests (no window, network or PS4 needed)
 #   ./build.sh clean          remove build outputs (keeps the FFmpeg build)
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -39,11 +40,16 @@ desktop)
 	cmake --build build -j"$(nproc)"
 	echo "Run: build/stremio_tv"
 	;;
+test)
+	cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+	cmake --build build -j"$(nproc)" --target stremio_tv_tests
+	build/stremio_tv_tests
+	;;
 clean)
 	rm -rf build build_ps4
 	;;
 *)
-	echo "usage: $0 ps4 [--local] | desktop [--dev] | clean" >&2
+	echo "usage: $0 ps4 [--local] | desktop [--dev] | test | clean" >&2
 	exit 1
 	;;
 esac

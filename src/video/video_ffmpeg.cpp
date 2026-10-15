@@ -356,7 +356,6 @@ public:
 		threads::Lock lock(mutex_);
 		return sub_tracks_;
 	}
-	int subtitle_track() const override { return sub_sel_; }
 	void set_subtitle_track(int id) override {
 		if (id == sub_sel_ || state_ == IDLE || state_ == FAILED) return;
 		want_sub_ = id;

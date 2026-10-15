@@ -33,8 +33,6 @@ struct Texture {
 	bool valid() const { return id != 0; }
 };
 
-// Decodes a PNG/JPEG file (stb_image) into an RGBA texture.
-Texture load_texture(const std::string &path);
 Texture make_texture(int width, int height, const uint8_t *rgba);
 
 class Font;
@@ -48,9 +46,6 @@ public:
 
 	void rect(float x, float y, float w, float h, const Color &c);
 	void rounded_rect(float x, float y, float w, float h, float radius, const Color &c);
-	// Outline of a rounded rectangle, `thickness` px wide, inside the bounds.
-	void rounded_outline(float x, float y, float w, float h, float radius, float thickness, const Color &c,
-			const Color &inside);
 	// Image scaled to cover the box (cropped, like "keep aspect covered").
 	void image_cover(const Texture &t, float x, float y, float w, float h, float alpha = 1.0f);
 	// Rounds an image's corners by drawing `background`-coloured caps over
@@ -90,6 +85,8 @@ private:
 	void quad(Kind kind, GLuint texture, const Color &c, float x, float y, float w, float h, float u0, float v0,
 			float u1, float v1);
 	void flush();
+	// Starts a new batch unless the current one matches and has room.
+	void batch(Kind kind, GLuint texture, const Color &c, size_t vertices);
 	void transform_point(float &x, float &y) const;
 	void triangle(float x0, float y0, float x1, float y1, float x2, float y2, const Color &c);
 	void corner_fan(float cx, float cy, float r, int corner, bool inside, const Color &c);

@@ -173,9 +173,4 @@ inline void nv12_to_rgba(const uint8_t *y_plane, const uint8_t *uv_plane, size_t
 	convert_rows(Nv12{ y_plane, uv_plane, pitch, pitch }, w, 0, h, bt709, full_range, out);
 }
 
-inline void nv12_to_rgba_scalar(const uint8_t *y_plane, const uint8_t *uv_plane, size_t pitch, int w, int h, bool bt709,
-		bool full_range, uint8_t *out) {
-	scalar_columns(Nv12{ y_plane, uv_plane, pitch, pitch }, 0, w, 0, h, coefficients(bt709, full_range, 8), out);
-}
-
 } // namespace nv12

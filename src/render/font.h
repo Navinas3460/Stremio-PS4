@@ -23,10 +23,11 @@ public:
 	float measure(const std::string &utf8);
 	// Shortens `utf8` with "…" so it fits in `max_width`.
 	std::string ellipsize(const std::string &utf8, float max_width);
+	// Word-wraps `utf8` (each '\n' starts a new line) to `max_width`. With
+	// `max_lines` > 0, the last line kept ends in "…" if text was cut.
+	std::vector<std::string> wrap(const std::string &utf8, float max_width, int max_lines = 0);
 
 	int size() const { return size_; }
-	float ascent() const { return ascent_; }
-	float line_height() const { return line_height_; }
 
 private:
 	struct Glyph {
@@ -41,7 +42,6 @@ private:
 	static FT_Library library_;
 	FT_Face face_ = nullptr;
 	int size_ = 0;
-	float ascent_ = 0, line_height_ = 0;
 	std::unordered_map<uint32_t, Glyph> glyphs_;
 	Texture atlas_;
 	std::vector<uint8_t> pixels_; // CPU copy of the atlas (RGBA)

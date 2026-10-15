@@ -1,6 +1,6 @@
 // Video playback behind one interface:
-//   video_ffmpeg.cpp   desktop: FFmpeg decoding, SDL audio
-//   video_avplayer.cpp PS4: sceAvPlayer (hardware decoder) + sceAudioOut
+//   video_ffmpeg.cpp   FFmpeg software decoding (default, desktop and PS4)
+//   video_avplayer.cpp PS4 only: sceAvPlayer (hardware decoder, MP4/H.264)
 // Frames are delivered as an RGBA texture (the PS4 has no YUV shader, so
 // NV12 -> RGBA happens on a CPU thread).
 #pragma once
@@ -29,6 +29,10 @@ public:
 	};
 
 	static std::unique_ptr<VideoPlayer> create();
+	// The backend choice from Settings (PS4): the hardware AvPlayer instead
+	// of FFmpeg. Stored as `backend=avplayer` in <data dir>/player.cfg.
+	static bool hardware_selected();
+	static void select_hardware(bool hardware);
 	virtual ~VideoPlayer() = default;
 
 	// `headers`: extra HTTP request headers ("Name: value").
@@ -52,8 +56,7 @@ public:
 	virtual int audio_track() const { return -1; }
 	virtual void set_audio_track(int) {}
 	virtual std::vector<Track> subtitle_tracks() const { return {}; }
-	virtual int subtitle_track() const { return -1; } // -1 = off
-	virtual void set_subtitle_track(int) {}
+	virtual void set_subtitle_track(int) {} // -1 = off
 	// The embedded subtitle to show now (main thread). False if none.
 	virtual bool current_subtitle(Subtitle &) { return false; }
 };

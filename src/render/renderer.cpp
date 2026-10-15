@@ -7,11 +7,6 @@
 #include <cmath>
 #include <cstring>
 
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_ONLY_JPEG
-#include "stb_image.h"
-
 Color rgb(uint32_t hex, float alpha) {
 	return Color{ ((hex >> 16) & 0xFF) / 255.0f, ((hex >> 8) & 0xFF) / 255.0f, (hex & 0xFF) / 255.0f, alpha };
 }
@@ -31,18 +26,6 @@ Texture make_texture(int width, int height, const uint8_t *rgba) {
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	return t;
-}
-
-Texture load_texture(const std::string &path) {
-	int w = 0, h = 0, n = 0;
-	uint8_t *px = stbi_load(path.c_str(), &w, &h, &n, 4);
-	if (!px) {
-		platform::log("image %s: %s", path.c_str(), stbi_failure_reason());
-		return Texture();
-	}
-	Texture t = make_texture(w, h, px);
-	stbi_image_free(px);
 	return t;
 }
 
@@ -105,10 +88,8 @@ void Renderer::end_frame() {
 // --- transforms -------------------------------------------------------------
 
 void Renderer::push(float cx, float cy, float scale, float opacity) {
-	const Transform &top = transforms_.back();
-	// Compose: new point p' = top(cx + (p - cx) * scale)
-	transforms_.push_back(Transform{ cx, cy, scale, top.opacity * opacity });
-	(void)top;
+	// Nested transforms compose: transform_point applies the innermost first.
+	transforms_.push_back(Transform{ cx, cy, scale, transforms_.back().opacity * opacity });
 }
 
 void Renderer::pop() {
@@ -152,20 +133,24 @@ void Renderer::transform_point(float &x, float &y) const {
 	}
 }
 
+void Renderer::batch(Kind kind, GLuint texture, const Color &c, size_t vertices) {
+	const bool same = kind == batch_kind_ && (kind == SOLID || texture == batch_texture_) && c.r == batch_color_.r &&
+			c.g == batch_color_.g && c.b == batch_color_.b && c.a == batch_color_.a;
+	if (!same || batch_.size() + vertices > batch_.capacity()) {
+		flush();
+		batch_kind_ = kind;
+		batch_texture_ = texture;
+		batch_color_ = c;
+	}
+}
+
 // Solid triangle (fpSolidColor), batched with rectangles of the same colour.
 void Renderer::triangle(float x0, float y0, float x1, float y1, float x2, float y2, const Color &color) {
 	const Color c = color.with_alpha(transforms_.back().opacity);
 	if (c.a <= 0.001f) {
 		return;
 	}
-	const bool same = batch_kind_ == SOLID && c.r == batch_color_.r && c.g == batch_color_.g && c.b == batch_color_.b &&
-			c.a == batch_color_.a;
-	if (!same || batch_.size() + 3 > batch_.capacity()) {
-		flush();
-		batch_kind_ = SOLID;
-		batch_texture_ = 0;
-		batch_color_ = c;
-	}
+	batch(SOLID, 0, c, 3);
 	const float sx = 2.0f / width_, sy = 2.0f / height_;
 	const float xs[3] = { x0, x1, x2 }, ys[3] = { y0, y1, y2 };
 	for (int i = 0; i < 3; i++) {
@@ -198,30 +183,15 @@ void Renderer::corner_fan(float cx, float cy, float r, int corner, bool inside, 
 
 void Renderer::quad(Kind kind, GLuint texture, const Color &color, float x, float y, float w, float h, float u0,
 		float v0, float u1, float v1) {
-	// Apply the transform stack (innermost last), then map to clip space.
 	float x0 = x, y0 = y, x1 = x + w, y1 = y + h;
-	float opacity = 1.0f;
-	for (size_t i = transforms_.size(); i-- > 0;) {
-		const Transform &t = transforms_[i];
-		x0 = t.cx + (x0 - t.cx) * t.scale;
-		x1 = t.cx + (x1 - t.cx) * t.scale;
-		y0 = t.cy + (y0 - t.cy) * t.scale;
-		y1 = t.cy + (y1 - t.cy) * t.scale;
-	}
-	opacity = transforms_.back().opacity;
-	// MASK colours arrive opaque with opacity already applied (see above).
-	Color c = kind == MASK ? color : color.with_alpha(opacity);
+	transform_point(x0, y0);
+	transform_point(x1, y1);
+	// MASK colours arrive opaque with opacity already applied (see mask_quad).
+	const Color c = kind == MASK ? color : color.with_alpha(transforms_.back().opacity);
 	if (c.a <= 0.001f) {
 		return;
 	}
-	const bool same = kind == batch_kind_ && (kind == SOLID || texture == batch_texture_) && c.r == batch_color_.r &&
-			c.g == batch_color_.g && c.b == batch_color_.b && c.a == batch_color_.a;
-	if (!same || batch_.size() + 6 > batch_.capacity()) {
-		flush();
-		batch_kind_ = kind;
-		batch_texture_ = texture;
-		batch_color_ = c;
-	}
+	batch(kind, texture, c, 6);
 	const float sx = 2.0f / width_, sy = 2.0f / height_;
 	const float X0 = x0 * sx - 1.0f, X1 = x1 * sx - 1.0f;
 	const float Y0 = 1.0f - y0 * sy, Y1 = 1.0f - y1 * sy;
@@ -248,7 +218,8 @@ void Renderer::mask_quad(GLuint texture, float x, float y, float w, float h, flo
 	// fpAlphaColor ignores fillColor's alpha, so translucent text is drawn
 	// opaque, pre-blended toward the backdrop (identical on solid backgrounds).
 	const float a = c.a * transforms_.back().opacity;
-	const Color blended = a >= 0.999f ? Color{ c.r, c.g, c.b, 1 } : Color{ mix(backdrop_, c, a).r, mix(backdrop_, c, a).g, mix(backdrop_, c, a).b, 1 };
+	Color blended = a >= 0.999f ? c : mix(backdrop_, c, a);
+	blended.a = 1;
 	quad(MASK, texture, blended, x, y, w, h, u0, v0, u1, v1);
 }
 
@@ -268,13 +239,6 @@ void Renderer::rounded_rect(float x, float y, float w, float h, float radius, co
 	corner_fan(x + w - r, y + r, r, 1, true, c);
 	corner_fan(x + w - r, y + h - r, r, 2, true, c);
 	corner_fan(x + r, y + h - r, r, 3, true, c);
-}
-
-void Renderer::rounded_outline(float x, float y, float w, float h, float radius, float thickness, const Color &c,
-		const Color &inside) {
-	rounded_rect(x, y, w, h, radius, c);
-	rounded_rect(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, std::max(0.0f, radius - thickness),
-			inside);
 }
 
 void Renderer::round_corners(float x, float y, float w, float h, float radius, const Color &background) {

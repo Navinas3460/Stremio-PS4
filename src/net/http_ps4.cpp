@@ -50,10 +50,6 @@ bool backend_init() {
 	return net_pool >= 0 && ssl >= 0 && g_http_ctx >= 0;
 }
 
-int ps4_context() {
-	return g_http_ctx;
-}
-
 Response perform(const Request &request) {
 	Response res;
 	const bool post = request.method == "POST";

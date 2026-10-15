@@ -74,15 +74,6 @@ void send(const Request &request, Callback on_done, Callback on_worker) {
 	g_cond.notify_one();
 }
 
-void post_json(const std::string &url, const std::string &json_body, Callback on_done) {
-	Request r;
-	r.method = "POST";
-	r.url = url;
-	r.headers.push_back("Content-Type: application/json");
-	r.body = json_body;
-	send(r, std::move(on_done));
-}
-
 void get(const std::string &url, Callback on_done, Callback on_worker) {
 	Request r;
 	r.url = url;

@@ -7,7 +7,6 @@
 #include "theme.h"
 
 #include <algorithm>
-#include <cmath>
 
 namespace {
 
@@ -16,10 +15,9 @@ using theme::S;
 const float W = 1920, H = 1080;
 const float MARGIN = 120;
 const float ROW_H = S(84), ROW_GAP = S(10);
-
-float approach(float current, float target, double dt) {
-	return current + (target - current) * (1.0f - std::exp(-(float)dt * 3.0f / theme::FOCUS_DURATION));
-}
+const float LISTS_TOP = S(330);               // "Episodes" / "Streams" titles
+const float LIST_Y = LISTS_TOP + S(30);
+const float LIST_H = H - S(90) - LIST_Y;
 
 // Add-ons decorate stream names with emoji; Inter (and the PS4, which has no
 // font fallback) can't draw them, so drop those code points.
@@ -37,34 +35,6 @@ std::string clean(const std::string &text) {
 		if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
 	}
 	return out;
-}
-
-// Greedy word wrap into at most `max_lines` lines (last one ellipsized).
-std::vector<std::string> wrap(Font &f, const std::string &text, float width, int max_lines) {
-	std::vector<std::string> lines;
-	std::string line, word;
-	auto flush_word = [&]() {
-		if (word.empty()) return;
-		const std::string candidate = line.empty() ? word : line + " " + word;
-		if (f.measure(candidate) <= width || line.empty()) {
-			line = candidate;
-		} else {
-			lines.push_back(line);
-			line = word;
-		}
-		word.clear();
-	};
-	for (char c : text) {
-		if (c == ' ' || c == '\n') flush_word();
-		else word += c;
-	}
-	flush_word();
-	if (!line.empty()) lines.push_back(line);
-	if ((int)lines.size() > max_lines) {
-		lines.resize(max_lines);
-		lines.back() = f.ellipsize(lines.back() + " \xE2\x80\xA6", width);
-	}
-	return lines;
 }
 
 } // namespace
@@ -149,8 +119,7 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 
 void DetailsScreen::play(const StreamItem &stream) {
 	if (stream.playable_url().empty()) {
-		toast_ = stream.unsupported_reason();
-		toast_time_ = 2.5f;
+		toast_.show(stream.unsupported_reason(), true);
 		return;
 	}
 	PlayerScreen::Args args;
@@ -195,41 +164,37 @@ void DetailsScreen::update(double dt, uint32_t pressed) {
 	for (int c = 0; c < 2; c++) {
 		ListState &l = c == 0 ? episodes_list_ : streams_list_;
 		for (size_t i = 0; i < l.focus.size(); i++) {
-			l.focus[i] = approach(l.focus[i], (c == column_ && (int)i == l.selected) ? 1.0f : 0.0f, dt);
+			l.focus[i] = ui::approach(l.focus[i], (c == column_ && (int)i == l.selected) ? 1.0f : 0.0f, dt);
 		}
+		l.scroll = ui::follow(l.scroll, l.selected * (ROW_H + ROW_GAP), ROW_H, LIST_H, dt);
 	}
-	if (toast_time_ > 0) toast_time_ -= (float)dt;
+	toast_.update(dt);
 }
 
-void DetailsScreen::draw_list(Renderer &r, ListState &list, const std::vector<std::string> &line1,
-		const std::vector<std::string> &line2, const std::vector<bool> &muted, int active, bool focused, float x,
+void DetailsScreen::draw_list(Renderer &r, ListState &list, const std::vector<ListRow> &rows, int active, float x,
 		float y, float w, float h) {
-	// Keep the selected row visible.
-	const float step = ROW_H + ROW_GAP;
-	const float sel_top = list.selected * step;
-	float target = list.scroll;
-	if (sel_top - target < 0) target = sel_top;
-	if (sel_top + ROW_H - target > h) target = sel_top + ROW_H - h;
-	list.scroll += (target - list.scroll) * 0.25f;
-	for (size_t i = 0; i < line1.size(); i++) {
-		const float ry = y + i * step - list.scroll;
+	const float R = theme::RADIUS_FIELD, pad = S(22);
+	for (size_t i = 0; i < rows.size(); i++) {
+		const float ry = y + i * (ROW_H + ROW_GAP) - list.scroll;
 		if (ry < y - S(6) || ry + ROW_H > y + h + S(6)) continue; // only whole rows (the hint line is below)
+		const ListRow &row = rows[i];
 		const float f = i < list.focus.size() ? list.focus[i] : 0.0f;
-		r.push(x + w / 2, ry + ROW_H / 2, 1.0f + 0.03f * f, 1.0f);
-		if (f > 0.02f) r.rounded_rect(x - S(4), ry - S(4), w + S(8), ROW_H + S(8), theme::RADIUS_CARD + S(4), theme::BRAND_PRIMARY.with_alpha(f));
-		const Color bg = (int)i == active ? mix(theme::SURFACE, theme::BRAND_PRIMARY, 0.35f) : theme::SURFACE;
-		r.rounded_rect(x, ry, w, ROW_H, theme::RADIUS_CARD, bg);
-		const bool dim = i < muted.size() && muted[i];
-		const float pad = S(22);
-		if (i < line2.size() && !line2[i].empty()) {
-			r.text(fonts_.card_title, fonts_.card_title.ellipsize(line1[i], w - 2 * pad), x + pad, ry + S(36), dim ? theme::TEXT_MUTED : theme::TEXT);
-			r.text(fonts_.body, fonts_.body.ellipsize(line2[i], w - 2 * pad), x + pad, ry + S(66), theme::TEXT_MUTED);
-		} else {
-			r.text(fonts_.card_title, fonts_.card_title.ellipsize(line1[i], w - 2 * pad), x + pad, ry + ROW_H / 2 + S(9), dim ? theme::TEXT_MUTED : theme::TEXT);
+		ui::begin_focus(r, x, ry, w, ROW_H, R, f, 1.03f);
+		r.rounded_rect(x, ry, w, ROW_H, R, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
+		float tx = x + pad;
+		if ((int)i == active) { // e.g. the episode whose streams are listed
+			ui::status(r, tx + S(6), ry + ROW_H / 2);
+			tx += S(26);
 		}
-		const float opacity = focused ? (theme::ALPHA_UNFOCUSED + (1 - theme::ALPHA_UNFOCUSED) * std::max(f, 0.0f)) : theme::ALPHA_UNFOCUSED;
-		if (opacity < 0.999f) r.rounded_rect(x, ry, w, ROW_H, theme::RADIUS_CARD, theme::BRAND_TERTIARY.with_alpha(1 - opacity));
-		r.pop();
+		const float tw = w - (tx - x) - pad;
+		const Color title = row.muted ? theme::BASE_CONTENT_MUTED : theme::BASE_CONTENT;
+		if (!row.line2.empty()) {
+			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + S(36), title);
+			r.text(fonts_.body, fonts_.body.ellipsize(row.line2, tw), tx, ry + S(66), theme::BASE_CONTENT_MUTED);
+		} else {
+			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + ROW_H / 2 + S(9), title);
+		}
+		ui::end_focus(r, x, ry, w, ROW_H, R, f);
 	}
 }
 
@@ -238,37 +203,36 @@ void DetailsScreen::draw(Renderer &r) {
 	const Texture &art = images::first(target_.images);
 	if (art.valid()) {
 		r.image_cover(art, 0, 0, W, H);
-		r.rect(0, 0, W, H, theme::BRAND_TERTIARY.with_alpha(0.78f));
+		r.rect(0, 0, W, H, theme::BASE_100.with_alpha(0.78f));
 	}
 
 	float y = S(110);
-	r.text(fonts_.page_header, fonts_.page_header.ellipsize(target_.name, W - 2 * MARGIN), MARGIN, y, theme::TEXT);
+	r.text(fonts_.page_header, fonts_.page_header.ellipsize(target_.name, W - 2 * MARGIN), MARGIN, y, theme::BASE_CONTENT);
 	y += S(44);
 	std::string info = target_.type.empty() ? "" : std::string(1, (char)toupper(target_.type[0])) + target_.type.substr(1);
 	if (!target_.release_info.empty()) info += "  \xC2\xB7  " + target_.release_info;
-	r.text(fonts_.body, info, MARGIN, y, theme::TEXT_MUTED);
+	r.text(fonts_.body, info, MARGIN, y, theme::BASE_CONTENT_MUTED);
 	y += S(42);
 	if (!meta_error_.empty() && !has_meta_) {
-		r.text(fonts_.body, "Couldn't load details: " + meta_error_, MARGIN, y, rgb(0xFF8A80));
+		r.text(fonts_.body, "Couldn't load details: " + meta_error_, MARGIN, y, theme::ERROR);
 	}
-	for (const std::string &line : wrap(fonts_.body, description_, S(1150), 3)) {
-		r.text(fonts_.body, line, MARGIN, y, theme::TEXT);
+	for (const std::string &line : fonts_.body.wrap(description_, S(1150), 3)) {
+		r.text(fonts_.body, line, MARGIN, y, theme::BASE_CONTENT);
 		y += S(30);
 	}
 
-	const float top = S(330), bottom = H - S(90);
 	const bool has_episodes = has_meta_ && meta_.videos.size() > 1;
 	float streams_x = MARGIN;
 	if (has_episodes) {
 		const float ew = S(560);
-		r.text(fonts_.section, "Episodes", MARGIN, top, theme::SECTION_TITLE);
-		std::vector<std::string> l1, l2;
+		r.text(fonts_.section, "Episodes", MARGIN, LISTS_TOP, theme::BASE_CONTENT);
+		std::vector<ListRow> rows;
 		int active = -1;
 		for (size_t i = 0; i < meta_.videos.size(); i++) {
-			l1.push_back(clean(MetaItem::video_label(meta_.videos[i])));
+			rows.push_back({ clean(MetaItem::video_label(meta_.videos[i])) });
 			if (meta_.videos[i].id == video_id_) active = (int)i;
 		}
-		draw_list(r, episodes_list_, l1, l2, {}, active, column_ == 0, MARGIN, top + S(30), ew, bottom - top - S(30));
+		draw_list(r, episodes_list_, rows, active, MARGIN, LIST_Y, ew, LIST_H);
 		streams_x = MARGIN + ew + S(48);
 	}
 
@@ -277,20 +241,19 @@ void DetailsScreen::draw(Renderer &r) {
 		if (const Video *v = meta_.find_video(video_id_)) title += "  \xC2\xB7  " + clean(MetaItem::video_label(*v));
 	}
 	const float sw = W - MARGIN - streams_x;
-	r.text(fonts_.section, fonts_.section.ellipsize(title, sw), streams_x, top, theme::SECTION_TITLE);
+	r.text(fonts_.section, fonts_.section.ellipsize(title, sw), streams_x, LISTS_TOP, theme::BASE_CONTENT);
 	if (!streams_status_.empty()) {
-		r.text(fonts_.body, streams_status_, streams_x, top + S(60), theme::TEXT_MUTED);
+		r.text(fonts_.body, streams_status_, streams_x, LISTS_TOP + S(60), theme::BASE_CONTENT_MUTED);
 	}
-	std::vector<std::string> l1, l2;
-	std::vector<bool> muted;
+	std::vector<ListRow> rows;
 	for (const StreamItem &s : streams_) {
 		const bool playable = !s.playable_url().empty();
-		l1.push_back(clean(s.addon_name + (s.name.empty() ? "" : "  \xC2\xB7  " + s.name)));
-		l2.push_back(clean(playable ? s.description : s.unsupported_reason()));
-		muted.push_back(!playable);
+		rows.push_back({ clean(s.addon_name + (s.name.empty() ? "" : "  \xC2\xB7  " + s.name)),
+				clean(playable ? s.description : s.unsupported_reason()), !playable });
 	}
-	draw_list(r, streams_list_, l1, l2, muted, -1, column_ == 1, streams_x, top + S(30), sw, bottom - top - S(30));
+	draw_list(r, streams_list_, rows, -1, streams_x, LIST_Y, sw, LIST_H);
 
-	const std::string hint = toast_time_ > 0 ? toast_ : "\xC3\x97 Select    \xE2\x97\x8B Back";
-	r.text(fonts_.body, hint, MARGIN, H - S(40), toast_time_ > 0 ? theme::STATUS_ACCENT : theme::TEXT_MUTED);
+	ui::hints(r, fonts_.small, { { "\xC3\x97", column_ == 0 ? "Episode" : "Play" }, { "\xE2\x97\x8B", "Back" } }, MARGIN,
+			H - S(40));
+	toast_.draw(r, fonts_.body, W / 2, H - S(120));
 }

@@ -16,6 +16,7 @@ public:
 private:
 	struct Item {
 		std::string label, value;
+		bool danger = false; // daisyUI btn-error look (sign-out confirmation)
 		float focus = 0;
 	};
 	void refresh_items();

@@ -36,8 +36,7 @@ bool init(int workers);
 // download, e.g. to decode an image; `on_done` runs later on the main thread.
 void send(const Request &request, Callback on_done, Callback on_worker = nullptr);
 
-// Convenience for JSON APIs.
-void post_json(const std::string &url, const std::string &json_body, Callback on_done);
+// GET `url` (see send).
 void get(const std::string &url, Callback on_done, Callback on_worker = nullptr);
 
 // Runs finished callbacks. Call once per frame on the main thread.
@@ -64,9 +63,5 @@ public:
 	virtual std::string url() const = 0;
 };
 std::unique_ptr<RangeConnection> open_range(const std::string &url, const std::vector<std::string> &headers);
-
-#if defined(STREMIO_PS4)
-int ps4_context(); // the libSceHttp context, for the video streamer
-#endif
 
 } // namespace http

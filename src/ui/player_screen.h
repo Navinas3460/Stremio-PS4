@@ -11,6 +11,7 @@
 #include "../core/models.h"
 #include "../core/subtitles.h"
 #include "../video/video_player.h"
+#include "components.h"
 #include "screen.h"
 
 #include <memory>
@@ -46,7 +47,6 @@ private:
 	void queue_seek(double step);
 	void exit();
 	void show_overlay();
-	void show_toast(const std::string &text);
 
 	void rebuild_subtitle_options();
 	void choose_subtitle(const SubtitleOption &option, bool remember);
@@ -68,8 +68,7 @@ private:
 	double overlay_timer_ = 0;
 	bool session_ = false;
 	VideoPlayer::State last_state_ = VideoPlayer::IDLE;
-	std::string toast_;
-	float toast_time_ = 0;
+	ui::Toast toast_;
 
 	// Tracks and subtitles.
 	std::vector<SubtitleItem> addon_subs_;

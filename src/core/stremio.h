@@ -32,10 +32,10 @@ class Stremio {
 public:
 	void init(); // loads the saved session
 
+#if defined(STREMIO_DEV)
 	// Desktop testing without an account: no Stremio API calls; a small
 	// sample library and the public Cinemeta add-on. Never saves a session.
-#if defined(STREMIO_DEV)
-	void start_demo(); // development builds: sample session, no account
+	void start_demo();
 #endif
 
 	bool logged_in() const { return !auth_key_.empty(); }
@@ -105,8 +105,13 @@ private:
 	void sync_library();
 	void sync_addons();
 	void after_sync();
+#if defined(STREMIO_DEV)
 	void add_extra_addons(std::vector<std::string> urls, std::function<void()> done);
+#endif
 	void load_board();
+	// Loads each row's catalog URL into its items; answers are dropped once
+	// `current` is false (a newer board / search). Bumps `rev` per answer.
+	void fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current);
 	std::vector<BoardRow> search_;
 	std::string search_query_;
 	int search_gen_ = 0;

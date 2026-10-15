@@ -12,7 +12,7 @@ struct Fonts {
 	Font section;     // semibold
 	Font card_title;  // medium
 	Font body;        // regular
-	Font small;       // regular (debug overlay)
+	Font small;       // regular (controller hints, details)
 	Font subtitle;    // semibold, large (video subtitles)
 };
 

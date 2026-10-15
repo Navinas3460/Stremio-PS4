@@ -1,7 +1,9 @@
-# Desktop build (SDL2 + OpenGL ES 2) of Stremio TV, for development. The PS4
-# package is built with Makefile.ps4 instead (see BUILDING.md).
+# Desktop build (SDL2 + OpenGL ES 2) of Stremio TV, for development, and the
+# unit tests. The PS4 package is built with Makefile.ps4 instead (see
+# BUILDING.md).
 #
 #   cmake -S . -B build && cmake --build build -j && build/stremio_tv
+#   ctest --test-dir build --output-on-failure
 #
 # -DSTREMIO_DEV=ON adds developer tools: demo session (STREMIO_TV_DEMO=1),
 # extra add-ons (STREMIO_TV_DEMO_ADDONS), scripted runs with screenshots
@@ -35,6 +37,7 @@ add_executable(stremio_tv
     src/net/range_reader.cpp
     src/ui/home_screen.cpp
     src/ui/card.cpp
+    src/ui/components.cpp
     src/ui/tab_bar.cpp
     src/ui/search_screen.cpp
     src/ui/library_screen.cpp
@@ -56,3 +59,25 @@ endif()
 # Assets next to the executable (platform::asset_path uses the exe folder).
 add_custom_command(TARGET stremio_tv POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:stremio_tv>/assets)
+
+# Unit tests: the platform-independent code, plus the Stremio facade against
+# fake platform / HTTP layers (tests/fakes.cpp). No window, network or PS4.
+option(STREMIO_TESTS "Build the unit tests" ON)
+if(STREMIO_TESTS)
+    enable_testing()
+    add_executable(stremio_tv_tests
+        tests/main.cpp
+        tests/fakes.cpp
+        tests/test_json.cpp
+        tests/test_models.cpp
+        tests/test_nv12.cpp
+        tests/test_stremio.cpp
+        tests/test_subtitles.cpp
+        src/core/json.cpp
+        src/core/models.cpp
+        src/core/stremio.cpp
+        src/core/subtitles.cpp
+    )
+    target_compile_options(stremio_tv_tests PRIVATE -Wall -Wno-unused-function)
+    add_test(NAME unit COMMAND stremio_tv_tests)
+endif()

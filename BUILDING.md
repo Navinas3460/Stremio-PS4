@@ -80,6 +80,25 @@ The window size can be changed with `STREMIO_TV_WINDOW=WxH`. Set
 `STREMIO_TV_DATA=<dir>` to use another data folder instead of
 `~/.local/share/stremio_tv`.
 
+### Tests
+
+```sh
+./build.sh test
+```
+
+The unit tests (`tests/`) need no window, network or console, and run in CI
+on every push. They cover:
+
+- JSON, subtitle (SRT/WebVTT) and add-on model parsing.
+- The SSE2 YUV → RGBA conversion, checked against the scalar reference.
+- The Stremio facade, run against a fake API and fake add-ons
+  (`tests/fakes.cpp`): session, library and add-on sync, the board,
+  new-episode notifications, Continue watching, search, signing out when the
+  key is revoked, and the player's watch-progress rules.
+
+`build/stremio_tv_tests <name>` runs only the tests whose name contains
+`<name>`; `TEST_VERBOSE=1` shows the app's log.
+
 ### Developer tools
 
 `./build.sh desktop --dev`, or CMake with `-DSTREMIO_DEV=ON`, adds tools that
@@ -114,12 +133,13 @@ and the PS4 pitfalls it works around.
 | `src/core` | Stremio logic: API, library, add-ons, player rules, JSON, subtitles |
 | `src/net` | HTTP (curl / libSceHttp), images, the parallel range reader for video |
 | `src/render` | OpenGL ES 2 renderer and FreeType fonts |
-| `src/ui` | Screens: sign-in, Home, Search, Library, Settings, details, player |
+| `src/ui` | Screens (sign-in, Home, Search, Library, Settings, details, player), theme tokens, shared components |
 | `src/video` | Players: FFmpeg (default), AvPlayer (PS4 hardware), YUV conversion |
 | `src/platform` | PS4 (Piglet, pad, kernel) and desktop (SDL2) back-ends |
 | `assets` | Inter fonts |
 | `sce_sys` | Package icon |
 | `third_party/stb` | stb_image, stb_image_write |
+| `tests` | Unit tests, fake platform / HTTP layers |
 | `tools` | FFmpeg build script, Docker build image |
 | `docs` | Architecture and design notes |
 

@@ -41,7 +41,7 @@ jobs:
           files: build_ps4/stremio-tv-*.pkg
 
   desktop:
-    name: Desktop build
+    name: Desktop build and tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +53,8 @@ jobs:
             libswresample-dev libavutil-dev
       - name: Build
         run: ./build.sh desktop
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
       - name: Build with developer tools
         run: |
           rm -rf build

@@ -2,9 +2,9 @@
 // Optional: FFmpeg (video_ffmpeg.cpp) is the default; this one is chosen in
 // Settings. What it relies on (verified on FW 11.02):
 //   - AddSource(https URL) fails, so AvPlayer reads the stream through its
-//     file-replacement callbacks, answered with HTTP Range requests that run
-//     on our own 1 MiB-stack thread (libSceHttp fails with
-//     INSUFFICIENT_STACKSIZE on AvPlayer's threads).
+//     file-replacement callbacks. They're answered on our own 1 MiB-stack
+//     thread from a RangeReader (AvPlayer's threads have tiny stacks, and
+//     libSceHttp fails there with INSUFFICIENT_STACKSIZE).
 //   - Decoded video is NV12 from GetVideoDataEx (pitch = align64(width),
 //     height = align16, UV plane right after the aligned height). There is no
 //     YUV shader on Piglet, so frames are converted to RGBA on a CPU thread.
@@ -15,13 +15,12 @@
 
 #include "nv12.h"
 
-#include "../net/http.h"
+#include "../net/range_reader.h"
 #include "../platform/platform.h"
 #include "../platform/threads.h"
 #include "avplayer_api.h"
 
 #include <orbis/AudioOut.h>
-#include <orbis/Http.h>
 #include <orbis/Sysmodule.h>
 #include <orbis/libkernel.h>
 
@@ -43,14 +42,8 @@
 extern "C" void sceVideoOutGetResolutionStatus();
 __attribute__((used)) void *const g_force_imports[] = { (void *)&sceVideoOutGetResolutionStatus };
 
-extern "C" int32_t avp_http_set_auto_redirect(int32_t id, int32_t enable) __asm__("sceHttpSetAutoRedirect");
-extern "C" int32_t avp_http_set_recv_timeout(int32_t id, uint32_t usec) __asm__("sceHttpSetRecvTimeOut");
-
 namespace {
 
-const char *USER_AGENT = "StremioTV/0.1 (PlayStation 4)";
-const uint64_t BLOCK = 1024 * 1024;
-const size_t MAX_BLOCKS = 8;             // 8 MiB read cache
 const size_t THREAD_STACK = 1024 * 1024;
 // RGBA frame buffers live in direct memory (the libc heap size is unknown
 // on PS4 and the frames are big). Larger videos are refused.
@@ -141,25 +134,13 @@ bool direct_free(void *p) {
 }
 
 // --- HTTP-backed file -------------------------------------------------------
+// AvPlayer calls the file callbacks on its own threads; each call is handed
+// to one I/O thread and waited for. The RangeReader downloads (and reads
+// ahead) on threads of its own.
 
-struct HttpStream {
-	std::string url;
-	std::vector<std::string> headers;
-	std::atomic<bool> abort{ false };
-
-	// Owned by the I/O thread.
-	int tpl = -1, conn = -1;
-	uint64_t size = 0;
-	struct Block {
-		uint64_t start;
-		std::vector<uint8_t> data;
-		uint64_t used;
-	};
-	std::vector<Block> cache;
-	uint64_t clock = 0;
-	uint64_t prefetch = UINT64_MAX; // next block to fetch while idle
-	int requests = 0;
-	uint64_t bytes = 0;
+struct Stream {
+	Stream(const std::string &url, const std::vector<std::string> &headers) : reader(url, headers) {}
+	RangeReader reader;
 
 	threads::Mutex error_mutex;
 	std::string error; // user-facing reason the stream can't be read
@@ -169,159 +150,27 @@ struct HttpStream {
 		platform::log("avplayer: stream error: %s", message.c_str());
 	}
 	std::string get_error() {
-		threads::Lock lock(error_mutex);
-		return error;
+		{
+			threads::Lock lock(error_mutex);
+			if (!error.empty()) return error;
+		}
+		return reader.error();
 	}
 };
 
-uint64_t content_range_total(const char *headers, size_t len) {
-	std::string h(headers, len);
-	for (char &c : h) c = (char)tolower((unsigned char)c);
-	const size_t at = h.find("content-range:");
-	if (at == std::string::npos) return 0;
-	const size_t slash = h.find('/', at);
-	const size_t eol = h.find('\n', at);
-	if (slash == std::string::npos || (eol != std::string::npos && slash > eol)) return 0;
-	return strtoull(h.c_str() + slash + 1, nullptr, 10);
-}
-
-std::vector<uint8_t> &read_chunk() {
-	static std::vector<uint8_t> chunk(64 * 1024); // only the I/O thread uses it
-	return chunk;
-}
-
-// GET bytes [start, end] into `out`. Returns the HTTP status, or < 0 on error.
-int http_range(HttpStream &s, uint64_t start, uint64_t end, std::vector<uint8_t> &out, uint64_t *total) {
-	out.clear();
-	const int req = sceHttpCreateRequestWithURL(s.conn, ORBIS_METHOD_GET, s.url.c_str(), 0);
-	if (req < 0) return req;
-	for (const std::string &h : s.headers) {
-		const size_t colon = h.find(':');
-		if (colon == std::string::npos) continue;
-		std::string value = h.substr(colon + 1);
-		value.erase(0, value.find_first_not_of(' '));
-		sceHttpAddRequestHeader(req, h.substr(0, colon).c_str(), value.c_str(), 0);
-	}
-	char range[64];
-	snprintf(range, sizeof(range), "bytes=%llu-%llu", (unsigned long long)start, (unsigned long long)end);
-	sceHttpAddRequestHeader(req, "Range", range, 0);
-	int rc = sceHttpSendRequest(req, nullptr, 0);
-	int32_t status = 0;
-	if (rc >= 0) rc = sceHttpGetStatusCode(req, &status);
-	if (rc < 0) {
-		sceHttpDeleteRequest(req);
-		return rc;
-	}
-	if (total) {
-		*total = 0;
-		char *headers = nullptr;
-		size_t headers_len = 0;
-		if (sceHttpGetAllResponseHeaders(req, &headers, &headers_len) >= 0 && headers) {
-			*total = content_range_total(headers, headers_len);
-		}
-		if (*total == 0 && status == 200) {
-			int32_t type = 0;
-			size_t length = 0;
-			if (sceHttpGetResponseContentLength(req, &type, &length) >= 0) *total = length;
-		}
-	}
-	if (status == 206 || (status == 200 && start == 0)) {
-		std::vector<uint8_t> &chunk = read_chunk();
-		const uint64_t want = end - start + 1;
-		out.reserve((size_t)want);
-		while (out.size() < want && !s.abort) {
-			const int n = sceHttpReadData(req, chunk.data(), (uint32_t)chunk.size());
-			if (n < 0) {
-				rc = n;
-				break;
-			}
-			if (n == 0) break;
-			const size_t take = std::min<size_t>((size_t)n, (size_t)(want - out.size()));
-			out.insert(out.end(), chunk.data(), chunk.data() + take);
-		}
-	}
-	sceHttpDeleteRequest(req);
-	s.requests++;
-	s.bytes += out.size();
-	return rc < 0 ? rc : status;
-}
-
-HttpStream::Block *find_block(HttpStream &s, uint64_t block_start) {
-	for (auto &b : s.cache) {
-		if (b.start == block_start) {
-			b.used = ++s.clock;
-			return &b;
-		}
-	}
-	return nullptr;
-}
-
-HttpStream::Block *fetch_block(HttpStream &s, uint64_t block_start) {
-	if (HttpStream::Block *b = find_block(s, block_start)) return b;
-	if (s.abort || block_start >= s.size) return nullptr;
-	HttpStream::Block b{ block_start, {}, ++s.clock };
-	const uint64_t end = std::min(block_start + BLOCK, s.size) - 1;
-	int status = 0;
-	for (int attempt = 0; attempt < 3 && b.data.empty() && !s.abort; attempt++) {
-		status = http_range(s, block_start, end, b.data, nullptr);
-		if (status == 200 && block_start > 0) break; // Range ignored: retrying won't help
-	}
-	if (b.data.empty()) {
-		if (status == 200) {
-			s.fail("This server doesn't support seeking in the video");
-		} else if (!s.abort) {
-			platform::log("avplayer: block @%llu failed (%s)", (unsigned long long)block_start,
-					status < 0 ? hex(status).c_str() : std::to_string(status).c_str());
-		}
-		return nullptr;
-	}
-	if (s.cache.size() >= MAX_BLOCKS) {
-		size_t oldest = 0;
-		for (size_t i = 1; i < s.cache.size(); i++) {
-			if (s.cache[i].used < s.cache[oldest].used) oldest = i;
-		}
-		s.cache.erase(s.cache.begin() + oldest);
-	}
-	s.cache.push_back(std::move(b));
-	return &s.cache.back();
-}
-
-int do_open(HttpStream &s) {
-	s.tpl = sceHttpCreateTemplate(http::ps4_context(), USER_AGENT, ORBIS_HTTP_VERSION_1_1, 1);
-	if (s.tpl < 0) {
-		s.fail("Network error " + hex(s.tpl));
+int do_open(Stream &s) {
+	if (!s.reader.open()) {
+		if (s.reader.error().empty()) s.fail("Couldn't open the stream");
 		return -1;
 	}
-	avp_http_set_auto_redirect(s.tpl, 1);
-	sceHttpSetConnectTimeOut(s.tpl, 15 * 1000 * 1000);
-	avp_http_set_recv_timeout(s.tpl, 30 * 1000 * 1000);
-	s.conn = sceHttpCreateConnectionWithURL(s.tpl, s.url.c_str(), 1);
-	if (s.conn < 0) {
-		s.fail("Network error " + hex(s.conn));
-		return -1;
-	}
-	std::vector<uint8_t> first;
-	uint64_t total = 0;
-	const int status = http_range(s, 0, 0, first, &total);
-	platform::log("avplayer: open status %d, size %llu", status, (unsigned long long)total);
-	if (status < 0) {
-		s.fail((uint32_t)status == 0x80431075 ? "Secure connection failed (TLS)" : "Network error " + hex(status));
-		return -1;
-	}
-	if (status >= 400 || total == 0) {
-		s.fail("The server answered HTTP " + std::to_string(status));
-		return -1;
-	}
-	s.size = total;
 	// Look at the container: AvPlayer only plays MP4 (and HLS via AddSourceEx).
-	HttpStream::Block *b = fetch_block(s, 0);
-	if (!b || b->data.size() < 12) {
+	uint8_t d[12];
+	if (s.reader.read(0, d, sizeof(d)) != (int)sizeof(d)) {
 		s.fail("Couldn't read the video");
 		return -1;
 	}
-	const uint8_t *d = b->data.data();
 	if (d[0] == 0x1A && d[1] == 0x45 && d[2] == 0xDF && d[3] == 0xA3) {
-		s.fail("MKV videos can't be played on PS4 yet - pick an MP4 stream");
+		s.fail("MKV videos can't be played by the PS4 player - choose FFmpeg in Settings");
 		return -1;
 	}
 	if (memcmp(d, "#EXTM3U", 7) == 0) {
@@ -334,43 +183,21 @@ int do_open(HttpStream &s) {
 	return 0;
 }
 
-int do_read(HttpStream &s, uint8_t *buffer, uint64_t position, uint32_t length) {
-	if (position >= s.size) return 0;
+int do_read(Stream &s, uint8_t *buffer, uint64_t position, uint32_t length) {
 	uint32_t done = 0;
-	while (done < length && position + done < s.size) {
-		const uint64_t pos = position + done;
-		HttpStream::Block *b = fetch_block(s, pos / BLOCK * BLOCK);
-		if (!b) return done > 0 ? (int)done : -1;
-		const uint64_t off = pos - b->start;
-		if (off >= b->data.size()) break;
-		const uint32_t n = (uint32_t)std::min<uint64_t>(length - done, b->data.size() - off);
-		memcpy(buffer + done, b->data.data() + off, n);
-		done += n;
+	while (done < length) {
+		const int n = s.reader.read(position + done, buffer + done, (int)(length - done));
+		if (n < 0) return done > 0 ? (int)done : -1;
+		if (n == 0) break; // end of the file
+		done += (uint32_t)n;
 	}
-	// Read ahead: AvPlayer reads mostly sequentially.
-	const uint64_t next = (position + done) / BLOCK * BLOCK + BLOCK;
-	s.prefetch = next < s.size ? next : UINT64_MAX;
 	return (int)done;
 }
-
-int do_close(HttpStream &s) {
-	platform::log("avplayer: stream closed after %d requests, %llu bytes", s.requests, (unsigned long long)s.bytes);
-	if (s.conn >= 0) sceHttpDeleteConnection(s.conn);
-	if (s.tpl >= 0) sceHttpDeleteTemplate(s.tpl);
-	s.conn = s.tpl = -1;
-	s.cache.clear();
-	s.prefetch = UINT64_MAX;
-	return 0;
-}
-
-// --- I/O thread ---------------------------------------------------------------
-// AvPlayer calls the file callbacks on its own threads; each call is handed
-// to this thread and waited for. While idle it prefetches the next block.
 
 enum JobKind { JOB_OPEN, JOB_READ, JOB_CLOSE };
 struct Job {
 	JobKind kind;
-	HttpStream *stream;
+	Stream *stream;
 	uint8_t *buffer;
 	uint64_t position;
 	uint32_t length;
@@ -381,37 +208,24 @@ struct Job {
 threads::Mutex g_io_mutex;      // guards the fields below
 threads::CondVar g_io_wake, g_io_done;
 Job *g_job = nullptr;
-HttpStream *g_prefetch_stream = nullptr;
 threads::Mutex g_call_mutex;    // one callback at a time
 bool g_io_started = false;
 
 void *io_thread(void *) {
 	g_io_mutex.lock();
 	for (;;) {
-		if (Job *job = g_job) {
-			g_job = nullptr;
-			g_io_mutex.unlock();
-			switch (job->kind) {
-				case JOB_OPEN: job->result = do_open(*job->stream); break;
-				case JOB_READ: job->result = do_read(*job->stream, job->buffer, job->position, job->length); break;
-				case JOB_CLOSE: job->result = do_close(*job->stream); break;
-			}
-			g_io_mutex.lock();
-			g_prefetch_stream = job->kind == JOB_READ ? job->stream : nullptr;
-			job->done = true;
-			g_io_done.notify_all();
-			continue;
+		while (!g_job) g_io_wake.wait(g_io_mutex);
+		Job *job = g_job;
+		g_job = nullptr;
+		g_io_mutex.unlock();
+		switch (job->kind) {
+			case JOB_OPEN: job->result = do_open(*job->stream); break;
+			case JOB_READ: job->result = do_read(*job->stream, job->buffer, job->position, job->length); break;
+			case JOB_CLOSE: job->result = 0; break; // the round trip waits for any read in progress
 		}
-		HttpStream *s = g_prefetch_stream;
-		if (s && s->prefetch != UINT64_MAX && !s->abort) {
-			const uint64_t block = s->prefetch;
-			s->prefetch = UINT64_MAX;
-			g_io_mutex.unlock();
-			if (!find_block(*s, block)) fetch_block(*s, block);
-			g_io_mutex.lock();
-			continue;
-		}
-		g_io_wake.wait(g_io_mutex);
+		g_io_mutex.lock();
+		job->done = true;
+		g_io_done.notify_all();
 	}
 	return nullptr;
 }
@@ -426,19 +240,19 @@ int run_job(Job job) {
 }
 
 int fr_open(void *p, const char *) {
-	return run_job(Job{ JOB_OPEN, (HttpStream *)p, nullptr, 0, 0, -1, false });
+	return run_job(Job{ JOB_OPEN, (Stream *)p, nullptr, 0, 0, -1, false });
 }
 
 int fr_read(void *p, uint8_t *buffer, uint64_t position, uint32_t length) {
-	return run_job(Job{ JOB_READ, (HttpStream *)p, buffer, position, length, -1, false });
+	return run_job(Job{ JOB_READ, (Stream *)p, buffer, position, length, -1, false });
 }
 
 int fr_close(void *p) {
-	return run_job(Job{ JOB_CLOSE, (HttpStream *)p, nullptr, 0, 0, -1, false });
+	return run_job(Job{ JOB_CLOSE, (Stream *)p, nullptr, 0, 0, -1, false });
 }
 
 uint64_t fr_size(void *p) {
-	return ((HttpStream *)p)->size;
+	return ((Stream *)p)->reader.size();
 }
 
 // sceAudioOutInit crashes unless its module was loaded first.
@@ -486,9 +300,7 @@ public:
 			fail("The PS4 video player couldn't start");
 			return;
 		}
-		stream_ = new HttpStream();
-		stream_->url = url;
-		stream_->headers = headers;
+		stream_ = new Stream(url, headers);
 
 		SceAvPlayerInitData init;
 		memset(&init, 0, sizeof(init));
@@ -796,7 +608,7 @@ private:
 		stop_ = true;
 		for (int i = 0; i < 300 && threads_running_ > 0; i++) usleep(10000);
 		if (threads_running_ > 0) platform::log("avplayer: player threads didn't stop");
-		if (stream_) stream_->abort = true;
+		if (stream_) stream_->reader.abort();
 		if (handle_) {
 			sceAvPlayerStop(handle_);
 			sceAvPlayerClose(handle_); // calls fr_close
@@ -806,18 +618,11 @@ private:
 			sceAudioOutClose(audio_port_);
 			audio_port_ = -1;
 		}
-		{
-			// The I/O thread may still point at the stream for prefetching.
-			threads::Lock lock(g_io_mutex);
-			if (g_prefetch_stream == stream_) g_prefetch_stream = nullptr;
-		}
-		// A prefetch already running finishes quickly (abort) but still uses
-		// the stream: wait for it via an empty job round-trip.
 		if (stream_) {
-			HttpStream *s = stream_;
+			// An empty job round trip: the I/O thread is done with the stream.
+			run_job(Job{ JOB_CLOSE, stream_, nullptr, 0, 0, -1, false });
+			delete stream_;
 			stream_ = nullptr;
-			run_job(Job{ JOB_CLOSE, s, nullptr, 0, 0, -1, false });
-			delete s;
 		}
 		if (texture_.valid()) {
 			glDeleteTextures(1, &texture_.id);
@@ -838,7 +643,7 @@ private:
 	}
 
 	SceAvPlayerHandle handle_ = nullptr;
-	HttpStream *stream_ = nullptr;
+	Stream *stream_ = nullptr;
 	int audio_port_ = -1;
 
 	std::atomic<State> state_{ IDLE };

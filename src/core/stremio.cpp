@@ -275,8 +275,10 @@ void Stremio::sync_library() {
 		if (!ok) {
 			library_error_ = error;
 			platform::log("library sync failed: %s", error.c_str());
-			const std::string e = error;
-			if (e.find("session") != std::string::npos || e.find("uthKey") != std::string::npos) {
+			// The API answers a revoked key with "Session does not exist".
+			std::string e = error;
+			for (char &c : e) c = (char)tolower((unsigned char)c);
+			if (e.find("session") != std::string::npos || e.find("authkey") != std::string::npos) {
 				logout(); // the key was revoked
 				return;
 			}
@@ -314,44 +316,36 @@ void Stremio::sync_addons() {
 			addons_error_.clear();
 			platform::log("add-ons: %zu", addons_.size());
 		}
-		add_extra_addons({}, [this, gen] {
+		auto done = [this, gen] {
 			if (gen != gen_) return;
 			addons_loaded_ = true;
 			after_sync();
-		});
+		};
+#if defined(STREMIO_DEV)
+		add_extra_addons({}, done);
+#else
+		done();
+#endif
 	});
 }
 
-namespace {
-
-// Development builds only: add-ons used on top of the account's (never saved
-// to it), comma-separated manifest URLs in STREMIO_TV_DEMO_ADDONS.
-std::vector<std::string> dev_addon_urls() {
-	std::vector<std::string> urls;
 #if defined(STREMIO_DEV)
-	auto add_list = [&urls](const std::string &list, char sep) {
-		size_t start = 0;
-		while (start < list.size()) {
-			size_t end = list.find(sep, start);
+// Fetches `urls` plus the add-ons in STREMIO_TV_DEMO_ADDONS (comma-separated
+// manifest URLs), used on top of the account's but never saved to it, and
+// appends them to addons_ in that order, then calls `done`.
+void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void()> done) {
+	if (const char *env = getenv("STREMIO_TV_DEMO_ADDONS")) {
+		const std::string list = env;
+		for (size_t start = 0; start < list.size();) {
+			size_t end = list.find(',', start);
 			if (end == std::string::npos) end = list.size();
 			std::string u = list.substr(start, end - start);
-			while (!u.empty() && (u.back() == '\r' || u.back() == ' ')) u.pop_back();
 			u.erase(0, u.find_first_not_of(' '));
-			if (!u.empty() && u[0] != '#') urls.push_back(u);
+			u.erase(u.find_last_not_of(' ') + 1);
+			if (!u.empty()) urls.push_back(u);
 			start = end + 1;
 		}
-	};
-	if (const char *env = getenv("STREMIO_TV_DEMO_ADDONS")) add_list(env, ',');
-#endif
-	return urls;
-}
-
-} // namespace
-
-// Fetches `urls` plus the development add-ons and appends them to addons_ in
-// that order, then calls `done`.
-void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void()> done) {
-	for (const std::string &u : dev_addon_urls()) urls.push_back(u);
+	}
 	if (urls.empty()) {
 		done();
 		return;
@@ -377,6 +371,7 @@ void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void
 		});
 	}
 }
+#endif
 
 void Stremio::after_sync() {
 	if (--pending_syncs_ > 0) return;
@@ -498,10 +493,14 @@ void Stremio::load_board() {
 	}
 	board_rev++;
 	const int gen = gen_;
-	for (size_t i = 0; i < board_.size(); i++) {
-		fetch_json(board_[i].url, [this, gen, i](bool ok, const Json &json, const std::string &error) {
-			if (gen != gen_ || i >= board_.size()) return;
-			BoardRow &row = board_[i];
+	fetch_rows(board_, board_rev, [this, gen] { return gen == gen_; });
+}
+
+void Stremio::fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current) {
+	for (size_t i = 0; i < rows.size(); i++) {
+		fetch_json(rows[i].url, [&rows, &rev, current, i](bool ok, const Json &json, const std::string &error) {
+			if (!current() || i >= rows.size()) return;
+			BoardRow &row = rows[i];
 			row.loading = false;
 			std::vector<MetaItem> metas;
 			if (ok && metas_from_response(json, metas)) {
@@ -510,7 +509,7 @@ void Stremio::load_board() {
 			} else {
 				row.error = ok ? "unexpected catalog response" : error;
 			}
-			board_rev++;
+			rev++;
 		});
 	}
 }
@@ -534,21 +533,7 @@ void Stremio::search(const std::string &query) {
 			search_.push_back(row);
 		}
 	}
-	for (size_t i = 0; i < search_.size(); i++) {
-		fetch_json(search_[i].url, [this, gen, i](bool ok, const Json &json, const std::string &error) {
-			if (gen != search_gen_ || i >= search_.size()) return;
-			BoardRow &row = search_[i];
-			row.loading = false;
-			std::vector<MetaItem> metas;
-			if (ok && metas_from_response(json, metas)) {
-				if (metas.size() > BOARD_ROW_SIZE) metas.resize(BOARD_ROW_SIZE);
-				row.items = std::move(metas);
-			} else {
-				row.error = ok ? "unexpected catalog response" : error;
-			}
-			search_rev++;
-		});
-	}
+	fetch_rows(search_, search_rev, [this, gen] { return gen == search_gen_; });
 }
 
 // --- Meta details & streams (models/meta_details.rs) -----------------------------------

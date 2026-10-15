@@ -7,7 +7,6 @@
 #include "settings_screen.h"
 
 #include <algorithm>
-#include <cmath>
 
 namespace tabs {
 
@@ -15,7 +14,6 @@ namespace {
 using theme::S;
 const float W = 1920, H = 1080;
 const char *LABELS[COUNT] = { "Home", "Search", "Library", "Settings" };
-const float TOAST_SECONDS = 2.5f;
 } // namespace
 
 void open(Tab tab, Fonts &fonts, Navigator &nav) {
@@ -27,11 +25,6 @@ void open(Tab tab, Fonts &fonts, Navigator &nav) {
 		default: s = new SettingsScreen(fonts, nav); break;
 	}
 	nav.replace_root(std::unique_ptr<Screen>(s));
-}
-
-float approach(float current, float target, double dt) {
-	const float k = 1.0f - std::exp(-(float)dt * 3.0f / theme::FOCUS_DURATION);
-	return current + (target - current) * k;
 }
 
 bool TabBar::handle_shoulders(uint32_t pressed, Fonts &fonts, Navigator &nav) {
@@ -55,45 +48,45 @@ bool TabBar::handle_focused(uint32_t pressed, Fonts &fonts, Navigator &nav) {
 
 void TabBar::update(double dt, bool focused) {
 	if (!focused) index_ = active_; // re-entering the bar starts on the current tab
-	for (int i = 0; i < COUNT; i++) focus_[i] = approach(focus_[i], (focused && i == index_) ? 1.0f : 0.0f, dt);
-	if (toast_time_ > 0) toast_time_ -= (float)dt;
-}
-
-void TabBar::show_toast(const std::string &text) {
-	toast_ = text;
-	toast_time_ = TOAST_SECONDS;
+	for (int i = 0; i < COUNT; i++) focus_[i] = ui::approach(focus_[i], (focused && i == index_) ? 1.0f : 0.0f, dt);
+	toast_.update(dt);
 }
 
 void TabBar::draw(Renderer &r, Fonts &fonts) {
-	const Color bg = theme::BRAND_TERTIARY;
-	r.rect(0, CONTENT_BOTTOM, W, H - CONTENT_BOTTOM, bg);
-	if (toast_time_ > 0) {
-		const float a = std::min(1.0f, toast_time_ / 0.3f);
-		const float tw = fonts.body.measure(toast_);
-		r.text(fonts.body, toast_, (W - tw) / 2, BAR_Y - S(18), theme::STATUS_ACCENT.with_alpha(a));
-	}
-	const float total = COUNT * BAR_W + (COUNT - 1) * BAR_GAP;
+	r.rect(0, CONTENT_BOTTOM, W, H - CONTENT_BOTTOM, theme::BASE_100);
+	toast_.draw(r, fonts.body, W / 2, BOX_Y - S(76));
+
+	const float box_w = COUNT * TAB_W + 2 * BOX_PAD;
+	const float box_x = (W - box_w) / 2;
+	r.rounded_rect(box_x, BOX_Y, box_w, BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
 	for (int i = 0; i < COUNT; i++) {
-		const float x = (W - total) / 2 + i * (BAR_W + BAR_GAP);
+		const float x = box_x + BOX_PAD + i * TAB_W, y = BOX_Y + BOX_PAD;
 		const bool active = i == active_;
 		const float f = focus_[i];
-		r.push(x + BAR_W / 2, BAR_Y + BAR_H / 2, 1.0f + (theme::FOCUS_SCALE - 1.0f) * f, 1.0f);
-		const float radius = active ? theme::RADIUS_PILL : theme::RADIUS_CARD;
-		if (f > 0.02f) {
-			const Color ring = active ? theme::TEXT : theme::BRAND_SECONDARY;
-			r.rounded_rect(x - S(4), BAR_Y - S(4), BAR_W + S(8), BAR_H + S(8), radius + S(4), ring.with_alpha(f));
+		// The active tab is filled; focusing it rings it in the secondary
+		// colour so the two states stay distinguishable.
+		ui::begin_focus(r, x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, f, theme::FOCUS_SCALE,
+				active ? theme::SECONDARY : theme::PRIMARY);
+		if (active || f > 0.02f) {
+			const Color body = active ? theme::PRIMARY : theme::BASE_300.with_alpha(f);
+			r.rounded_rect(x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, body);
 		}
-		r.rounded_rect(x, BAR_Y, BAR_W, BAR_H, radius, active ? theme::BRAND_PRIMARY : theme::SURFACE);
-		const float lw = fonts.card_title.measure(LABELS[i]);
-		r.text(fonts.card_title, LABELS[i], x + (BAR_W - lw) / 2, BAR_Y + BAR_H / 2 + S(9), theme::TEXT);
-		const float opacity = theme::ALPHA_UNFOCUSED + (theme::ALPHA_FOCUSED - theme::ALPHA_UNFOCUSED) * f;
-		if (opacity < 0.999f) r.rounded_rect(x, BAR_Y, BAR_W, BAR_H, radius, bg.with_alpha(1.0f - opacity));
-		r.pop();
+		Font &font = fonts.card_title;
+		const float lw = font.measure(LABELS[i]);
+		// (Opaque: translucent text would be blended toward the backdrop, not the box.)
+		const Color muted = mix(theme::BASE_200, theme::BASE_CONTENT, theme::ALPHA_UNFOCUSED);
+		const Color label = active ? theme::PRIMARY_CONTENT : mix(muted, theme::BASE_CONTENT, f);
+		r.text(font, LABELS[i], x + (TAB_W - lw) / 2, y + TAB_H / 2 + font.size() * 0.36f, label);
+		if (active) {
+			ui::end_focus(r, x, y, TAB_W, TAB_H, theme::RADIUS_SELECTOR, f, theme::BASE_200);
+		} else {
+			r.pop(); // inactive tabs are dimmed by their muted label
+		}
 	}
-	// Shoulder-button hints at the ends of the bar.
-	const float hy = BAR_Y + BAR_H / 2 + S(9);
-	r.text(fonts.body, "L1", (W - total) / 2 - S(60), hy, theme::TEXT_MUTED);
-	r.text(fonts.body, "R1", (W + total) / 2 + S(30), hy, theme::TEXT_MUTED);
+	// Shoulder-button marks at the ends of the box.
+	const float hy = BOX_Y + BOX_H / 2 + fonts.small.size() * 0.36f;
+	ui::kbd(r, fonts.small, "L1", box_x - S(20) - ui::kbd_width(fonts.small, "L1"), hy);
+	ui::kbd(r, fonts.small, "R1", box_x + box_w + S(20), hy);
 }
 
 } // namespace tabs
