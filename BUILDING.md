@@ -52,8 +52,19 @@ Settings, and the PS4 package's version is derived from it (`01.00` for
 1.0.x).
 
 GitHub Actions (`.github/workflows/build.yml`) builds the package on every
-push. Pushing a tag such as `v1.0.0` also attaches the package to a GitHub
-release.
+push. Pushing a tag such as `v1.0.3` builds `stremio-ps4-1.0.3.pkg` (the
+version comes from the tag, not from `VERSION`) and attaches it to a GitHub
+release. To release:
+
+1. Update `VERSION` to the new version and commit, so local builds match.
+2. Tag the commit you want to release (usually the latest on `main`) and
+   push the tag:
+
+   ```sh
+   git checkout main && git pull
+   git tag v1.0.4
+   git push origin v1.0.4
+   ```
 
 ## Desktop build
 
