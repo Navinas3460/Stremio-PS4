@@ -36,9 +36,19 @@ private:
 	struct ListRow {
 		std::string line1, line2;
 		bool muted = false;
+		std::string badge; // optional, at the right end of line 1
+		Color badge_bg;
+		std::string note; // optional, muted, before the badge (e.g. the size)
 	};
 	void draw_list(Renderer &r, ListState &list, const std::vector<ListRow> &rows, int active, float x, float y, float w,
 			float h);
+	// Add-on filter above the streams (a small tab bar): All, then each add-on
+	// in the order they answered. Shown once two or more have streams.
+	bool has_filter() const { return addons_.size() > 1; }
+	void set_filter(int filter);
+	void refilter(); // rebuilds visible_ from streams_ and filter_
+	void draw_filter(Renderer &r, float x, float y, float w);
+	std::vector<float> filter_widths(); // per chip
 
 	Fonts &fonts_;
 	Navigator &nav_;
@@ -52,6 +62,12 @@ private:
 	std::string video_id_;
 
 	std::vector<StreamItem> streams_;
+	std::vector<std::string> addons_;
+	int filter_ = 0;           // 0 = All, else addons_[filter_ - 1]
+	std::vector<int> visible_; // indices into streams_ that pass the filter
+	bool filter_focused_ = false;
+	std::vector<float> filter_focus_;
+	float filter_scroll_ = 0;
 	bool streams_loading_ = false;
 	std::string streams_status_;
 

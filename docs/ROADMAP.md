@@ -63,18 +63,14 @@ downloading them every time.
 Rating, genres, runtime and cast, from fields add-ons already return in
 their meta responses.
 
-## Torrent streams
+## Torrent engine
 
-Most Stremio add-ons only offer torrents, and only direct HTTP streams play
-today. Stremio's own streaming server is Node.js, which can't run on the PS4
-(no JIT for V8, no Node port, and it spawns FFmpeg processes). Two options:
+Torrents play through the built-in engine (docs/ARCHITECTURE.md#torrents).
+What would make it reach more peers:
 
-- **A native engine in the app:** a streaming-only BitTorrent client that
-  fetches pieces in playback order and serves them through the existing
-  `RangeReader`. The largest option, but it keeps the app self-contained.
-- **A helper on a PC:** the official streaming server on another machine on
-  the network, with the app sending torrent streams to it. Small on the PS4
-  side, but users need a computer running.
-
-First step either way: a probe on the console to measure how much memory,
-CPU and network throughput are left while 1080p video is playing.
+- **µTP (BEP 29):** many peers prefer it, and some routers only let it
+  through. Today the engine speaks TCP only.
+- **Protocol encryption (MSE/PE),** for peers and networks that require it.
+- **IPv6** peers, trackers and DHT.
+- **Remember good peers** per torrent for the next play, to start faster in
+  small swarms.

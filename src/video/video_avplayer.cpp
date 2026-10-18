@@ -3,7 +3,7 @@
 // Settings. What it relies on (verified on FW 11.02):
 //   - AddSource(https URL) fails, so AvPlayer reads the stream through its
 //     file-replacement callbacks. They're answered on our own 1 MiB-stack
-//     thread from a RangeReader (AvPlayer's threads have tiny stacks, and
+//     thread from a ByteSource (AvPlayer's threads have tiny stacks, and
 //     libSceHttp fails there with INSUFFICIENT_STACKSIZE).
 //   - Decoded video is NV12 from GetVideoDataEx (pitch = align64(width),
 //     height = align16, UV plane right after the aligned height). There is no
@@ -15,7 +15,7 @@
 
 #include "nv12.h"
 
-#include "../net/range_reader.h"
+#include "../net/byte_source.h"
 #include "../platform/platform.h"
 #include "../platform/threads.h"
 #include "avplayer_api.h"
@@ -139,8 +139,8 @@ bool direct_free(void *p) {
 // ahead) on threads of its own.
 
 struct Stream {
-	Stream(const std::string &url, const std::vector<std::string> &headers) : reader(url, headers) {}
-	RangeReader reader;
+	Stream(const std::string &url, const std::vector<std::string> &headers) : reader(ByteSource::create(url, headers)) {}
+	std::unique_ptr<ByteSource> reader; // RangeReader or TorrentStream
 
 	threads::Mutex error_mutex;
 	std::string error; // user-facing reason the stream can't be read
@@ -154,18 +154,18 @@ struct Stream {
 			threads::Lock lock(error_mutex);
 			if (!error.empty()) return error;
 		}
-		return reader.error();
+		return reader->error();
 	}
 };
 
 int do_open(Stream &s) {
-	if (!s.reader.open()) {
-		if (s.reader.error().empty()) s.fail("Couldn't open the stream");
+	if (!s.reader->open()) {
+		if (s.reader->error().empty()) s.fail("Couldn't open the stream");
 		return -1;
 	}
 	// Look at the container: AvPlayer only plays MP4 (and HLS via AddSourceEx).
 	uint8_t d[12];
-	if (s.reader.read(0, d, sizeof(d)) != (int)sizeof(d)) {
+	if (s.reader->read(0, d, sizeof(d)) != (int)sizeof(d)) {
 		s.fail("Couldn't read the video");
 		return -1;
 	}
@@ -186,7 +186,7 @@ int do_open(Stream &s) {
 int do_read(Stream &s, uint8_t *buffer, uint64_t position, uint32_t length) {
 	uint32_t done = 0;
 	while (done < length) {
-		const int n = s.reader.read(position + done, buffer + done, (int)(length - done));
+		const int n = s.reader->read(position + done, buffer + done, (int)(length - done));
 		if (n < 0) return done > 0 ? (int)done : -1;
 		if (n == 0) break; // end of the file
 		done += (uint32_t)n;
@@ -252,7 +252,7 @@ int fr_close(void *p) {
 }
 
 uint64_t fr_size(void *p) {
-	return ((Stream *)p)->reader.size();
+	return ((Stream *)p)->reader->size();
 }
 
 // sceAudioOutInit crashes unless its module was loaded first.
@@ -407,6 +407,7 @@ public:
 	}
 	double duration() const override { return duration_; }
 	std::string error() const override { return error_; }
+	std::string source_status() const override { return stream_ ? stream_->reader->status() : std::string(); }
 	const Texture &frame() const override { return texture_; }
 
 private:
@@ -608,7 +609,7 @@ private:
 		stop_ = true;
 		for (int i = 0; i < 300 && threads_running_ > 0; i++) usleep(10000);
 		if (threads_running_ > 0) platform::log("avplayer: player threads didn't stop");
-		if (stream_) stream_->reader.abort();
+		if (stream_) stream_->reader->abort();
 		if (handle_) {
 			sceAvPlayerStop(handle_);
 			sceAvPlayerClose(handle_); // calls fr_close

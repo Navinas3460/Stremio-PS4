@@ -7,6 +7,7 @@
 #include "theme.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace {
 
@@ -18,23 +19,53 @@ const float ROW_H = S(84), ROW_GAP = S(10);
 const float LISTS_TOP = S(330);               // "Episodes" / "Streams" titles
 const float LIST_Y = LISTS_TOP + S(30);
 const float LIST_H = H - S(90) - LIST_Y;
+// Add-on filter: a smaller version of the home tab bar, over the streams.
+const float CHIP_H = S(46), CHIP_MIN_W = S(110), BOX_PAD = S(6);
+const float BOX_H = CHIP_H + 2 * BOX_PAD;
+const float FILTER_SPACE = BOX_H + S(18); // taken from the top of the streams list
+const float CAPS_W = S(110);              // the L1 / R1 marks after the box
 
 // Add-ons decorate stream names with emoji; Inter (and the PS4, which has no
-// font fallback) can't draw them, so drop those code points.
+// font fallback) can't draw them, so drop those code points. Flags (pairs of
+// regional indicators, e.g. audio languages) become their letters ("GB").
+// Lines are joined with separators, and lines left with nothing readable
+// (e.g. only the slashes between flags) are dropped.
 std::string clean(const std::string &text) {
-	std::string out;
+	std::string out, line;
+	auto flush = [&]() {
+		const bool readable = std::any_of(line.begin(), line.end(), [](char ch) { return isalnum((unsigned char)ch); });
+		const size_t a = line.find_first_not_of(' '), b = line.find_last_not_of(' ');
+		if (readable) out += (out.empty() ? "" : "  \xC2\xB7  ") + line.substr(a, b - a + 1);
+		line.clear();
+	};
 	size_t i = 0;
 	while (i < text.size()) {
 		const size_t start = i;
 		const uint32_t c = next_codepoint(text, i);
+		if (c >= 0x1F1E6 && c <= 0x1F1FF) {
+			line += (char)('A' + (c - 0x1F1E6));
+			continue;
+		}
 		if ((c >= 0x2600 && c <= 0x27BF) || c >= 0x1F000 || c == 0xFE0F || c == 0x200D) continue;
-		out.append(text, start, i - start);
+		if (c == '\n' || c == '\r') {
+			flush();
+			continue;
+		}
+		if (c == '\t') {
+			line += ' ';
+			continue;
+		}
+		line.append(text, start, i - start);
 	}
-	// Collapse newlines into separators.
-	for (char &ch : out) {
-		if (ch == '\n' || ch == '\r' || ch == '\t') ch = ' ';
-	}
+	flush();
 	return out;
+}
+
+// "56 seeders", coloured by how quickly the torrent is likely to start.
+void seeders_badge(int seeders, std::string &text, Color &bg) {
+	if (seeders < 0) return;
+	text = std::to_string(seeders) + (seeders == 1 ? " seeder" : " seeders");
+	bg = seeders >= 15 ? theme::ACCENT : seeders >= 5 ? theme::WARNING : theme::ERROR;
 }
 
 } // namespace
@@ -91,6 +122,11 @@ void DetailsScreen::on_meta(const MetaItem &meta) {
 void DetailsScreen::load_streams(const std::string &video_id) {
 	video_id_ = video_id;
 	streams_.clear();
+	addons_.clear();
+	visible_.clear();
+	filter_ = 0;
+	filter_focused_ = false;
+	filter_scroll_ = 0;
 	streams_list_ = ListState();
 	streams_loading_ = true;
 	streams_status_ = "Finding streams\xE2\x80\xA6";
@@ -99,6 +135,9 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 	stremio().request_streams(target_.type, video_id,
 			[this, alive, requested](const std::string &, std::vector<StreamItem> &streams, const std::string &) {
 				if (alive.expired() || requested != video_id_) return;
+				if (!streams.empty() && std::find(addons_.begin(), addons_.end(), streams[0].addon_name) == addons_.end()) {
+					addons_.push_back(streams[0].addon_name);
+				}
 				// Playable streams first, keeping add-on order within each group.
 				std::stable_partition(streams.begin(), streams.end(), [](const StreamItem &s) { return !s.playable_url().empty(); });
 				const size_t playable_before = std::count_if(streams_.begin(), streams_.end(), [](const StreamItem &s) { return !s.playable_url().empty(); });
@@ -107,7 +146,8 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 					if (!st.playable_url().empty()) streams_.insert(streams_.begin() + insert_at++, st);
 					else streams_.push_back(st);
 				}
-				streams_list_.focus.assign(streams_.size(), 0.0f);
+				streams_list_.focus.clear();
+				refilter();
 				if (!streams_.empty()) streams_status_.clear();
 			},
 			[this, alive, requested]() {
@@ -115,6 +155,30 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 				streams_loading_ = false;
 				if (streams_.empty()) streams_status_ = "No streams found. Install a streaming add-on in Stremio to watch this.";
 			});
+}
+
+void DetailsScreen::set_filter(int filter) {
+	if (filter == filter_) return;
+	filter_ = filter;
+	streams_list_ = ListState();
+	refilter();
+}
+
+void DetailsScreen::refilter() {
+	visible_.clear();
+	const std::string *addon = filter_ > 0 && filter_ <= (int)addons_.size() ? &addons_[filter_ - 1] : nullptr;
+	for (size_t i = 0; i < streams_.size(); i++) {
+		if (!addon || streams_[i].addon_name == *addon) visible_.push_back((int)i);
+	}
+	streams_list_.focus.resize(visible_.size(), 0.0f);
+	streams_list_.selected = std::max(0, std::min((int)visible_.size() - 1, streams_list_.selected));
+}
+
+std::vector<float> DetailsScreen::filter_widths() {
+	std::vector<float> w;
+	w.push_back(std::max(CHIP_MIN_W, ui::chip_width(fonts_.body, "All")));
+	for (const std::string &a : addons_) w.push_back(std::max(CHIP_MIN_W, ui::chip_width(fonts_.body, clean(a))));
+	return w;
 }
 
 void DetailsScreen::play(const StreamItem &stream) {
@@ -164,28 +228,63 @@ void DetailsScreen::update(double dt, uint32_t pressed) {
 	if (pressed & platform::BUTTON_TRIANGLE) toggle_library();
 	const bool has_episodes = has_meta_ && meta_.videos.size() > 1;
 	if (!has_episodes) column_ = 1;
-	ListState &list = column_ == 0 ? episodes_list_ : streams_list_;
-	const int count = column_ == 0 ? (int)meta_.videos.size() : (int)streams_.size();
-	if (pressed & platform::BUTTON_UP) list.selected = std::max(0, list.selected - 1);
-	if (pressed & platform::BUTTON_DOWN) list.selected = std::max(0, std::min(count - 1, list.selected + 1));
-	if ((pressed & platform::BUTTON_LEFT) && has_episodes) column_ = 0;
-	if ((pressed & platform::BUTTON_RIGHT) && !streams_.empty()) column_ = 1;
-	if (pressed & platform::BUTTON_ACCEPT) {
-		if (column_ == 0 && count > 0) {
-			const std::string id = meta_.videos[episodes_list_.selected].id;
-			if (id != video_id_) load_streams(id);
-			column_ = 1;
-		} else if (column_ == 1 && count > 0) {
-			play(streams_[streams_list_.selected]);
+	const int filters = (int)addons_.size() + 1;
+	if (!has_filter()) filter_focused_ = false;
+	// L1 / R1 switch the add-on filter from anywhere, like the tabs on home.
+	if (has_filter() && (pressed & (platform::BUTTON_L1 | platform::BUTTON_R1))) {
+		set_filter((filter_ + ((pressed & platform::BUTTON_R1) ? 1 : -1) + filters) % filters);
+	}
+	if (filter_focused_) {
+		if (pressed & platform::BUTTON_LEFT) {
+			if (filter_ > 0) set_filter(filter_ - 1);
+			else if (has_episodes) {
+				column_ = 0;
+				filter_focused_ = false;
+			}
+		}
+		if ((pressed & platform::BUTTON_RIGHT) && filter_ < filters - 1) set_filter(filter_ + 1);
+		if ((pressed & (platform::BUTTON_DOWN | platform::BUTTON_ACCEPT)) && !visible_.empty()) filter_focused_ = false;
+	} else {
+		ListState &list = column_ == 0 ? episodes_list_ : streams_list_;
+		const int count = column_ == 0 ? (int)meta_.videos.size() : (int)visible_.size();
+		if (pressed & platform::BUTTON_UP) {
+			if (column_ == 1 && list.selected == 0 && has_filter()) filter_focused_ = true;
+			list.selected = std::max(0, list.selected - 1);
+		}
+		if (pressed & platform::BUTTON_DOWN) list.selected = std::max(0, std::min(count - 1, list.selected + 1));
+		if ((pressed & platform::BUTTON_LEFT) && has_episodes) column_ = 0;
+		if ((pressed & platform::BUTTON_RIGHT) && !streams_.empty()) column_ = 1;
+		if (pressed & platform::BUTTON_ACCEPT) {
+			if (column_ == 0 && count > 0) {
+				const std::string id = meta_.videos[episodes_list_.selected].id;
+				if (id != video_id_) load_streams(id);
+				column_ = 1;
+			} else if (column_ == 1 && count > 0) {
+				play(streams_[visible_[streams_list_.selected]]);
+			}
 		}
 	}
 	// Animations.
 	for (int c = 0; c < 2; c++) {
 		ListState &l = c == 0 ? episodes_list_ : streams_list_;
 		for (size_t i = 0; i < l.focus.size(); i++) {
-			l.focus[i] = ui::approach(l.focus[i], (c == column_ && (int)i == l.selected) ? 1.0f : 0.0f, dt);
+			const bool focused = c == column_ && (int)i == l.selected && !(c == 1 && filter_focused_);
+			l.focus[i] = ui::approach(l.focus[i], focused ? 1.0f : 0.0f, dt);
 		}
-		l.scroll = ui::follow(l.scroll, l.selected * (ROW_H + ROW_GAP), ROW_H, LIST_H, dt);
+		const float view = c == 1 && has_filter() ? LIST_H - FILTER_SPACE : LIST_H;
+		l.scroll = ui::follow(l.scroll, l.selected * (ROW_H + ROW_GAP), ROW_H, view, dt);
+	}
+	filter_focus_.resize(filters, 0.0f);
+	for (int i = 0; i < filters; i++) {
+		filter_focus_[i] = ui::approach(filter_focus_[i], (filter_focused_ && i == filter_) ? 1.0f : 0.0f, dt);
+	}
+	if (has_filter()) { // keep the current chip inside the box when they overflow it
+		const std::vector<float> w = filter_widths();
+		float start = 0;
+		for (int i = 0; i < filter_; i++) start += w[i];
+		const float sx = has_episodes ? MARGIN + S(560) + S(48) : MARGIN;
+		const float view = W - MARGIN - sx - CAPS_W - 2 * BOX_PAD;
+		filter_scroll_ = ui::follow(filter_scroll_, start, w[filter_], view, dt);
 	}
 	toast_.update(dt);
 }
@@ -205,16 +304,54 @@ void DetailsScreen::draw_list(Renderer &r, ListState &list, const std::vector<Li
 			ui::status(r, tx + S(6), ry + ROW_H / 2);
 			tx += S(26);
 		}
-		const float tw = w - (tx - x) - pad;
+		float tw = w - (tx - x) - pad;
 		const Color title = row.muted ? theme::BASE_CONTENT_MUTED : theme::BASE_CONTENT;
+		if (!row.badge.empty()) { // right end of the first line
+			const float bw = ui::badge_width(fonts_.small, row.badge), bh = ui::badge_height(fonts_.small);
+			const float by = (row.line2.empty() ? ry + ROW_H / 2 : ry + S(36) - fonts_.card_title.size() * 0.36f) - bh / 2;
+			ui::badge(r, fonts_.small, row.badge, x + w - pad - bw, by, row.badge_bg, theme::BASE_100);
+			tw -= bw + S(16);
+		}
+		if (!row.note.empty()) {
+			const float nw = fonts_.body.measure(row.note);
+			r.text(fonts_.body, row.note, tx + tw - nw, row.line2.empty() ? ry + ROW_H / 2 + S(8) : ry + S(36),
+					theme::BASE_CONTENT_MUTED);
+			tw -= nw + S(20);
+		}
 		if (!row.line2.empty()) {
 			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + S(36), title);
-			r.text(fonts_.body, fonts_.body.ellipsize(row.line2, tw), tx, ry + S(66), theme::BASE_CONTENT_MUTED);
+			r.text(fonts_.body, fonts_.body.ellipsize(row.line2, w - (tx - x) - pad), tx, ry + S(66), theme::BASE_CONTENT_MUTED);
 		} else {
 			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + ROW_H / 2 + S(9), title);
 		}
 		ui::end_focus(r, x, ry, w, ROW_H, R, f);
 	}
+}
+
+void DetailsScreen::draw_filter(Renderer &r, float x, float y, float w) {
+	const std::vector<float> widths = filter_widths();
+	float total = 0;
+	for (float cw : widths) total += cw;
+	const float box_w = std::min(total + 2 * BOX_PAD, w - CAPS_W);
+	const float scroll = total + 2 * BOX_PAD > box_w ? filter_scroll_ : 0;
+	r.rounded_rect(x, y, box_w, BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
+	// The focused chip last, so its ring isn't covered by its neighbours.
+	for (int pass = 0; pass < 2; pass++) {
+		float cx = x + BOX_PAD - scroll;
+		for (size_t i = 0; i < widths.size(); i++) {
+			const float f = i < filter_focus_.size() ? filter_focus_[i] : 0.0f;
+			const bool inside = cx >= x + BOX_PAD - 1 && cx + widths[i] <= x + box_w - BOX_PAD + 1; // only whole chips
+			if (inside && (pass == 0) != (f > 0.5f)) {
+				const std::string label = i == 0 ? "All" : clean(addons_[i - 1]);
+				ui::chip(r, fonts_.body, label, cx, y + BOX_PAD, widths[i], CHIP_H, (int)i == filter_, f, theme::BASE_200);
+			}
+			cx += widths[i];
+		}
+	}
+	const float hy = y + BOX_H / 2 + fonts_.small.size() * 0.36f;
+	const float kx = x + box_w + S(18);
+	ui::kbd(r, fonts_.small, "R1", kx + ui::kbd_width(fonts_.small, "L1") + S(8), hy);
+	ui::kbd(r, fonts_.small, "L1", kx, hy);
 }
 
 void DetailsScreen::draw(Renderer &r) {
@@ -269,17 +406,31 @@ void DetailsScreen::draw(Renderer &r) {
 	if (!streams_status_.empty()) {
 		r.text(fonts_.body, streams_status_, streams_x, LISTS_TOP + S(60), theme::BASE_CONTENT_MUTED);
 	}
-	std::vector<ListRow> rows;
-	for (const StreamItem &s : streams_) {
-		const bool playable = !s.playable_url().empty();
-		rows.push_back({ clean(s.addon_name + (s.name.empty() ? "" : "  \xC2\xB7  " + s.name)),
-				clean(playable ? s.description : s.unsupported_reason()), !playable });
+	float list_y = LIST_Y, list_h = LIST_H;
+	if (has_filter()) {
+		draw_filter(r, streams_x, LIST_Y, sw);
+		list_y += FILTER_SPACE;
+		list_h -= FILTER_SPACE;
 	}
-	draw_list(r, streams_list_, rows, -1, streams_x, LIST_Y, sw, LIST_H);
+	std::vector<ListRow> rows;
+	for (int i : visible_) {
+		const StreamItem &s = streams_[i];
+		const bool playable = !s.playable_url().empty();
+		// Add-ons often start the name with their own name ("Torrentio\n1080p").
+		std::string name = s.name;
+		if (name.rfind(s.addon_name, 0) == 0) name.erase(0, s.addon_name.size());
+		ListRow row{ clean(s.addon_name + "\n" + name), clean(playable ? s.details() : s.unsupported_reason()), !playable };
+		if (playable) {
+			seeders_badge(s.seeders, row.badge, row.badge_bg);
+			row.note = clean(s.size_label);
+		}
+		rows.push_back(row);
+	}
+	draw_list(r, streams_list_, rows, -1, streams_x, list_y, sw, list_h);
 
 	const bool saved = stremio().in_library(target_.meta_id);
 	ui::hints(r, fonts_.small,
-			{ { "\xC3\x97", column_ == 0 ? "Episode" : "Play" },
+			{ { "\xC3\x97", filter_focused_ ? "Show streams" : column_ == 0 ? "Episode" : "Play" },
 					{ "\xE2\x96\xB3", saved ? "Remove from library" : "Add to library" }, { "\xE2\x97\x8B", "Back" } },
 			MARGIN, H - S(40));
 	toast_.draw(r, fonts_.body, W / 2, H - S(120));

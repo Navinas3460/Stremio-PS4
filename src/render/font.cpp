@@ -48,7 +48,9 @@ const Font::Glyph &Font::glyph(uint32_t codepoint) {
 		return it->second;
 	}
 	Glyph g{};
-	if (FT_Load_Char(face_, codepoint, FT_LOAD_RENDER) == 0) {
+	// Characters the font lacks (e.g. Chinese in a file name) take no space,
+	// instead of drawing the font's empty box.
+	if (FT_Get_Char_Index(face_, codepoint) != 0 && FT_Load_Char(face_, codepoint, FT_LOAD_RENDER) == 0) {
 		const FT_GlyphSlot slot = face_->glyph;
 		const FT_Bitmap &bm = slot->bitmap;
 		g.width = (int)bm.width;

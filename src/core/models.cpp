@@ -1,12 +1,57 @@
 #include "models.h"
 
+#include "../torrent/magnet.h"
+
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 namespace {
+
+// Emoji labels torrent add-ons use for their stats line.
+const char *const SEEDERS_MARK = "\xF0\x9F\x91\xA4"; // 👤
+const char *const SIZE_MARK = "\xF0\x9F\x92\xBE";    // 💾
+const char *const ORIGIN_MARK = "\xE2\x9A\x99";       // ⚙ (often followed by U+FE0F)
+
+bool is_stats_line(const std::string &line) {
+	return line.find(SEEDERS_MARK) != std::string::npos || line.find(SIZE_MARK) != std::string::npos;
+}
+
+// The text after `mark` up to the next mark (or the line's end), trimmed.
+std::string after_mark(const std::string &line, const char *mark) {
+	size_t i = line.find(mark);
+	if (i == std::string::npos) return "";
+	i += strlen(mark);
+	if (line.compare(i, 3, "\xEF\xB8\x8F") == 0) i += 3; // variation selector
+	size_t end = line.size();
+	for (const char *m : { SEEDERS_MARK, SIZE_MARK, ORIGIN_MARK }) {
+		const size_t k = line.find(m, i);
+		if (k != std::string::npos) end = std::min(end, k);
+	}
+	std::string s = line.substr(i, end - i);
+	const size_t a = s.find_first_not_of(" \t"), b = s.find_last_not_of(" \t");
+	return a == std::string::npos ? "" : s.substr(a, b - a + 1);
+}
+
+void parse_stats(const std::string &text, int &seeders, std::string &size, std::string &origin) {
+	size_t start = 0;
+	while (start <= text.size()) {
+		size_t end = text.find('\n', start);
+		if (end == std::string::npos) end = text.size();
+		const std::string line = text.substr(start, end - start);
+		if (is_stats_line(line)) {
+			const std::string n = after_mark(line, SEEDERS_MARK);
+			if (!n.empty() && isdigit((unsigned char)n[0])) seeders = atoi(n.c_str());
+			size = after_mark(line, SIZE_MARK);
+			origin = after_mark(line, ORIGIN_MARK);
+			return;
+		}
+		start = end + 1;
+	}
+}
 
 const char *METAHUB = "https://images.metahub.space";
 
@@ -388,6 +433,20 @@ StreamItem StreamItem::from_json(const Json &j, const std::string &addon) {
 		s.source = YOUTUBE;
 	} else if (j["infoHash"].is_string()) {
 		s.source = TORRENT;
+		uint8_t hash[20];
+		if (torrent::parse_info_hash(j["infoHash"].as_string(), hash)) {
+			s.info_hash.clear();
+			static const char *hex = "0123456789abcdef";
+			for (uint8_t b : hash) {
+				s.info_hash += hex[b >> 4];
+				s.info_hash += hex[b & 15];
+			}
+		}
+		if (j["fileIdx"].is_number()) s.file_idx = (int)j["fileIdx"].as_int(-1);
+		// "sources": "tracker:<url>" entries (and "dht:<hash>", which the engine does anyway).
+		for (const Json &src : j["sources"].elements()) {
+			if (src.is_string() && src.as_string().rfind("tracker:", 0) == 0) s.trackers.push_back(src.as_string().substr(8));
+		}
 	} else if (j["externalUrl"].is_string()) {
 		s.source = EXTERNAL;
 	}
@@ -398,7 +457,22 @@ StreamItem StreamItem::from_json(const Json &j, const std::string &addon) {
 	s.filename = str(hints["filename"]);
 	s.video_hash = str(hints["videoHash"]);
 	s.video_size = (uint64_t)hints["videoSize"].as_int(0);
+	parse_stats(s.description, s.seeders, s.size_label, s.origin);
 	return s;
+}
+
+std::string StreamItem::details() const {
+	std::string out;
+	size_t start = 0;
+	while (start <= description.size()) {
+		size_t end = description.find('\n', start);
+		if (end == std::string::npos) end = description.size();
+		std::string line = description.substr(start, end - start);
+		if (is_stats_line(line)) line = origin;
+		if (!line.empty()) out += (out.empty() ? "" : "\n") + line;
+		start = end + 1;
+	}
+	return out;
 }
 
 SubtitleItem SubtitleItem::from_json(const Json &j, const std::string &addon) {
@@ -414,12 +488,13 @@ SubtitleItem SubtitleItem::from_json(const Json &j, const std::string &addon) {
 
 std::string StreamItem::playable_url() const {
 	if (source == URL && (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0)) return url;
+	if (source == TORRENT && !info_hash.empty()) return torrent::make_magnet(info_hash, file_idx, trackers);
 	return "";
 }
 
 std::string StreamItem::unsupported_reason() const {
 	switch (source) {
-		case TORRENT: return "Torrent: needs a streaming server";
+		case TORRENT: return info_hash.empty() ? "Torrent: invalid info-hash" : "";
 		case YOUTUBE: return "YouTube isn't supported yet";
 		case EXTERNAL: return "Opens in an external app";
 		case URL: return playable_url().empty() ? "Unsupported link" : "";

@@ -59,4 +59,7 @@ public:
 	virtual void set_subtitle_track(int) {} // -1 = off
 	// The embedded subtitle to show now (main thread). False if none.
 	virtual bool current_subtitle(Subtitle &) { return false; }
+	// What the input is doing while the player waits (torrent peers and
+	// speed); empty when there's nothing to add to "Buffering…".
+	virtual std::string source_status() const { return std::string(); }
 };

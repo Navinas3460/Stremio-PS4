@@ -117,12 +117,18 @@ struct SubtitleItem {
 	static SubtitleItem from_json(const Json &j, const std::string &addon);
 };
 
-// stremio-core Stream: only direct http(s) `url` sources are playable for
-// now (torrents need a streaming server).
+// stremio-core Stream: direct http(s) `url` sources, and torrents
+// (`infoHash`), which play through the built-in engine (src/torrent) as
+// magnet links.
 struct StreamItem {
 	enum Source { URL, YOUTUBE, TORRENT, EXTERNAL, OTHER };
 	Source source = OTHER;
 	std::string url, name, description, addon_name;
+	// Torrents: the info-hash (lower-case hex), the file (-1 = the engine
+	// picks the largest video) and the add-on's trackers ("sources").
+	std::string info_hash;
+	int file_idx = -1;
+	std::vector<std::string> trackers;
 	std::vector<std::string> request_headers; // behaviorHints.proxyHeaders.request, "Name: value"
 	// behaviorHints passed to subtitle add-ons (matching subtitles to the file).
 	std::string filename, video_hash;
@@ -131,4 +137,12 @@ struct StreamItem {
 	static StreamItem from_json(const Json &j, const std::string &addon);
 	std::string playable_url() const;
 	std::string unsupported_reason() const;
+
+	// Torrent add-ons (Torrentio, ...) put the swarm's stats in the stream's
+	// text as an emoji-labelled line: "👤 56 💾 859.37 MB ⚙️ YTS". from_json
+	// reads it; details() is the description with that line reduced to the
+	// origin ("YTS"; seeders and size are shown on their own).
+	int seeders = -1; // -1 = not given
+	std::string size_label, origin;
+	std::string details() const;
 };

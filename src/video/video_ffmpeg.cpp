@@ -3,15 +3,16 @@
 // uploaded on the main thread. Plays what AvPlayer can't (MKV, HEVC, 10-bit,
 // E-AC3...): pPlay showed the PS4's CPU keeps up with 1080p HEVC 10-bit.
 //
-// Network input goes through RangeReader (our HTTP stack: curl / libSceHttp)
-// as a custom AVIOContext, the same on both platforms; FFmpeg's own network
-// code isn't built for PS4.
+// Network input goes through a ByteSource (RangeReader over our HTTP stack:
+// curl / libSceHttp, or TorrentStream for magnet links) as a custom
+// AVIOContext, the same on both platforms; FFmpeg's own network code isn't
+// built for PS4.
 #include "video_player.h"
 
 #include "nv12.h"
 
 #include "../core/languages.h"
-#include "../net/range_reader.h"
+#include "../net/byte_source.h"
 #include "../platform/platform.h"
 #include "../platform/threads.h"
 
@@ -41,6 +42,7 @@ namespace {
 // Wider frames are scaled down (swscale, slow). 2560 keeps common wide
 // releases (e.g. 2160x1080) on the fast path.
 const int MAX_WIDTH = 2560;
+const int TEXTURE_ALIGN = 32; // frame rows are padded to this many pixels (see the converter)
 const size_t MAX_FRAMES = 6;
 const double MAX_QUEUED_AUDIO = 1.0; // seconds
 const int RATE = 48000, CHANNELS = 2;
@@ -341,6 +343,10 @@ public:
 	double duration() const override { return duration_; }
 	std::string error() const override { return error_; }
 	const Texture &frame() const override { return texture_; }
+	std::string source_status() const override {
+		threads::Lock lock(mutex_);
+		return reader_ ? reader_->status() : std::string();
+	}
 
 	std::vector<Track> audio_tracks() const override {
 		threads::Lock lock(mutex_);
@@ -408,7 +414,8 @@ private:
 
 	struct Frame {
 		double pts = 0;
-		int width = 0, height = 0;
+		int width = 0, height = 0; // of the buffer (and texture): width padded to TEXTURE_ALIGN
+		int shown_width = 0;       // of the picture
 		std::vector<uint8_t> rgba;
 	};
 
@@ -436,6 +443,7 @@ private:
 			if (texture_.valid()) glDeleteTextures(1, &texture_.id);
 			texture_ = make_texture(f.width, f.height, f.rgba.data());
 		}
+		texture_.shown_width = f.shown_width;
 		upload_time_ += platform::now() - t0;
 		uploads_++;
 	}
@@ -519,7 +527,7 @@ private:
 	}
 
 	void decode_loop() {
-		const bool network = url_.rfind("http://", 0) == 0 || url_.rfind("https://", 0) == 0;
+		const bool network = ByteSource::supports(url_);
 		AVFormatContext *fmt = avformat_alloc_context();
 		fmt->interrupt_callback.callback = &FfmpegPlayer::interrupt;
 		fmt->interrupt_callback.opaque = this;
@@ -527,7 +535,7 @@ private:
 		if (network) {
 			{
 				threads::Lock lock(mutex_);
-				reader_.reset(new RangeReader(url_, headers_));
+				reader_ = ByteSource::create(url_, headers_);
 			}
 			if (abort_) return;
 			if (!reader_->open()) {
@@ -609,9 +617,14 @@ private:
 						nullptr, nullptr, nullptr);
 				if (!sws) return;
 			}
+			// Rows padded to a multiple of 32 pixels: on PS4, uploading a
+			// 1436-wide frame took ~50 ms, and 1.7 ms once padded to 1440
+			// (Piglet has a slow path for other row widths).
+			const int tw = (w + TEXTURE_ALIGN - 1) & ~(TEXTURE_ALIGN - 1);
 			Frame f;
 			f.pts = pts;
-			f.width = w;
+			f.width = tw;
+			f.shown_width = w;
 			f.height = h;
 			{
 				threads::Lock lock(mutex_);
@@ -620,9 +633,9 @@ private:
 					pool_.pop_back();
 				}
 			}
-			f.rgba.resize((size_t)w * h * 4);
+			f.rgba.resize((size_t)tw * h * 4);
 			uint8_t *dst[4] = { f.rgba.data(), nullptr, nullptr, nullptr };
-			int stride[4] = { w * 4, 0, 0, 0 };
+			int stride[4] = { tw * 4, 0, 0, 0 };
 			const double t0 = platform::now();
 			if (fast) {
 				const bool bt709 = frame->colorspace == AVCOL_SPC_BT709 ||
@@ -630,16 +643,24 @@ private:
 				const bool full = frame->color_range == AVCOL_RANGE_JPEG || pf == AV_PIX_FMT_YUVJ420P;
 				const size_t ys = frame->linesize[0], cs = frame->linesize[1];
 				if (pf == AV_PIX_FMT_NV12) {
-					nv12::convert_rows(nv12::Nv12{ frame->data[0], frame->data[1], ys, cs }, w, 0, h, bt709, full, f.rgba.data());
+					nv12::convert_rows(nv12::Nv12{ frame->data[0], frame->data[1], ys, cs }, w, 0, h, bt709, full, f.rgba.data(), tw);
 				} else if (pf == AV_PIX_FMT_YUV420P10LE) {
 					nv12::convert_rows(nv12::P10{ frame->data[0], frame->data[1], frame->data[2], ys, cs }, w, 0, h, bt709, full,
-							f.rgba.data());
+							f.rgba.data(), tw);
 				} else {
 					nv12::convert_rows(nv12::I420{ frame->data[0], frame->data[1], frame->data[2], ys, cs }, w, 0, h, bt709, full,
-							f.rgba.data());
+							f.rgba.data(), tw);
 				}
 			} else {
 				sws_scale(sws, frame->data, frame->linesize, 0, frame->height, dst, stride);
+			}
+			// The padding repeats each row's last pixel, so filtering at the
+			// picture's right edge doesn't pull in garbage.
+			if (tw > w) {
+				for (int y = 0; y < h; y++) {
+					uint32_t *row = (uint32_t *)(f.rgba.data() + (size_t)y * tw * 4);
+					std::fill(row + w, row + tw, row[w - 1]);
+				}
 			}
 			convert_time += platform::now() - t0;
 			if (++frames_converted % 300 == 0) {
@@ -906,7 +927,7 @@ private:
 	std::string url_;
 	std::vector<std::string> headers_;
 	double start_ = 0;
-	std::unique_ptr<RangeReader> reader_; // guarded by mutex_ for reset/abort
+	std::unique_ptr<ByteSource> reader_; // guarded by mutex_ for reset/abort
 	int64_t io_pos_ = 0;
 
 	std::atomic<bool> running_{ false };

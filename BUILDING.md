@@ -92,6 +92,8 @@ on every push. They cover:
 
 - JSON, subtitle (SRT/WebVTT) and add-on model parsing.
 - The SSE2 YUV → RGBA conversion, checked against the scalar reference.
+- The torrent engine's building blocks: SHA-1 (RFC 3174 vectors), bencode
+  and magnet links.
 - The Stremio facade, run against a fake API and fake add-ons
   (`tests/fakes.cpp`): session, library and add-on sync, the board,
   new-episode notifications, Continue watching, search, signing out when the
@@ -111,6 +113,17 @@ are never part of the PS4 package:
 | Extra add-ons on top of the account's | `STREMIO_PS4_DEMO_ADDONS=<manifest-url>,…` |
 | Scripted runs with screenshots | `STREMIO_PS4_SCRIPT="wait 300; r1; wait 30; shot /tmp/s.png; quit"` |
 | An fps and draw-call counter | on by default in these builds |
+
+Every desktop build also has `build/torrent_fetch`, which streams one file
+of a magnet link through the torrent engine and reports the time to the file
+list, the first byte, the speed and a seek's delay:
+
+```sh
+build/torrent_fetch 'magnet:?xt=urn:btih:…' [MiB to read] [seek fraction] [pace MB/s]
+```
+
+With a pace it reads no faster than a player would, so the engine's
+readahead behaves as during playback.
 
 ## Debugging on the console
 
@@ -132,7 +145,8 @@ and the PS4 pitfalls it works around.
 | Path | Contents |
 |---|---|
 | `src/core` | Stremio logic: API, library, add-ons, player rules, JSON, subtitles |
-| `src/net` | HTTP (curl / libSceHttp), images, the parallel range reader for video |
+| `src/net` | HTTP (curl / libSceHttp), images, the byte sources video is read from (parallel range reader for HTTP) |
+| `src/torrent` | Torrent engine: trackers, DHT, peer wire, piece picking, memory cache |
 | `src/render` | OpenGL ES 2 renderer and FreeType fonts |
 | `src/ui` | Screens (sign-in, Home, Search, Library, Settings, details, player), theme tokens, shared components |
 | `src/video` | Players: FFmpeg (default), AvPlayer (PS4 hardware), YUV conversion |
@@ -141,7 +155,7 @@ and the PS4 pitfalls it works around.
 | `sce_sys` | Package icon |
 | `third_party/stb` | stb_image, stb_image_write |
 | `tests` | Unit tests, fake platform / HTTP layers |
-| `tools` | FFmpeg build script, Docker build image |
+| `tools` | FFmpeg build script, Docker build image, `torrent_fetch` |
 | `docs` | Architecture and design notes |
 
 ## Licences of bundled components

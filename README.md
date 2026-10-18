@@ -19,7 +19,12 @@ itself.
   by type and sorted by recently watched, name or most watched. Add or
   remove titles from their details page with △.
 - **Details:** description, seasons and episodes, and every stream your
-  add-ons offer.
+  add-ons offer, with a filter to show one add-on's streams at a time.
+  Torrent streams from Torrentio show their size and seeders, coloured by
+  how quickly they are likely to start (green 15+, amber 5–14, red under 5).
+- **Torrent streams play on the console itself,** with no streaming server
+  or PC. A built-in engine downloads the pieces in playback order into
+  memory, and shows its progress (peers, speed) while loading.
 - **Player:**
   - Plays MKV and MP4, H.264, HEVC (including 10-bit), AAC, AC3/E-AC3, DTS
     and more. Decoding is done in software with FFmpeg, and it handles
@@ -35,8 +40,8 @@ itself.
 
 - A PS4 or PS4 Pro running [GoldHEN](https://github.com/GoldHEN/GoldHEN).
   Tested on a PS4 Slim with FW 11.02.
-- A Stremio account with add-ons that provide **direct (HTTP/HTTPS)
-  streams**, e.g. a debrid service.
+- A Stremio account with add-ons that provide **torrent streams** (e.g.
+  Torrentio) or **direct (HTTP/HTTPS) streams** (e.g. a debrid service).
 
 ## Installing
 
@@ -54,14 +59,21 @@ itself.
 | D-pad | Move |
 | × | Select / play-pause |
 | ○ | Back |
-| L1 / R1 | Previous / next tab (Home, Search, Library, Settings) |
+| L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter |
 | ◀ ▶ (in the player) | Seek 10 s (presses add up) |
 | ▲ (in the player) | Audio & subtitles |
 
 ## Limitations
 
-- **Torrent streams** aren't supported yet; they need a streaming server.
-  Streams that can't be played are listed but greyed out.
+- **Torrents are download-only:** the app never uploads or seeds. Pieces
+  are kept in memory (about 200 MB at most), not on disk, so going back
+  more than a few seconds, or to a part watched long ago, downloads it
+  again. Torrents with few reachable peers can take 10–20 s to start.
+- **Seeders and size only show for Torrentio.** The app reads them from the
+  stats line Torrentio adds to each stream; streams from other add-ons show
+  their own text, without the badge.
+- **YouTube and external links** aren't supported. Streams that can't be
+  played are listed but greyed out.
 - **Subtitle fonts:** subtitles in scripts that Inter doesn't cover (for
   example Arabic, Chinese, Japanese) aren't rendered yet.
 

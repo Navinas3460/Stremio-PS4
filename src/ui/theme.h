@@ -19,6 +19,7 @@ inline const Color PRIMARY_CONTENT = rgb(0xFFFFFF);
 inline const Color SECONDARY = rgb(0x685CEE); // Majorelle Blue: focus on an active item
 inline const Color ACCENT = rgb(0x84DD63);    // Radioactive Grass: badges, "in use", toasts
 inline const Color ACCENT_CONTENT = BASE_100;
+inline const Color WARNING = rgb(0xF2C14E);
 inline const Color ERROR = rgb(0xFF8A80);
 
 // Everything is 15% larger than the base sizes in docs/DESIGN.md (reads better

@@ -30,7 +30,11 @@ struct Texture {
 	GLuint id = 0;
 	int width = 0;
 	int height = 0;
+	// Columns of the picture when the texture is wider (padded video frames);
+	// 0 = all of it.
+	int shown_width = 0;
 	bool valid() const { return id != 0; }
+	int picture_width() const { return shown_width > 0 ? shown_width : width; }
 };
 
 Texture make_texture(int width, int height, const uint8_t *rgba);
