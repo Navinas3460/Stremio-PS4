@@ -422,7 +422,7 @@ void PlayerScreen::draw(Renderer &r) {
 	const Texture &frame = player_->frame();
 	float vx = 0, vy = 0, vw = W, vh = H;
 	if (frame.valid()) {
-		const float aspect = (float)frame.width / frame.height;
+		const float aspect = (float)frame.picture_width() / frame.height;
 		vw = W;
 		vh = W / aspect;
 		if (vh > H) {
@@ -455,6 +455,13 @@ void PlayerScreen::draw(Renderer &r) {
 		Font &f = fonts_.card_title;
 		const std::string shown = f.ellipsize(status, W - 240);
 		r.text(f, shown, (W - f.measure(shown)) / 2, H / 2, error ? theme::ERROR : theme::BASE_CONTENT);
+		// Torrents: peers and speed under "Loading…" / "Buffering…".
+		const std::string detail = state == VideoPlayer::OPENING || state == VideoPlayer::BUFFERING ? player_->source_status() : "";
+		if (!detail.empty()) {
+			Font &b = fonts_.body;
+			const std::string line = b.ellipsize(detail, W - 240);
+			r.text(b, line, (W - b.measure(line)) / 2, H / 2 + S(48), theme::BASE_CONTENT_MUTED);
+		}
 	}
 
 	// Bottom overlay: title, progress, times, hints.

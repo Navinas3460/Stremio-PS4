@@ -4,6 +4,7 @@
 #include "test.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -83,5 +84,20 @@ TEST(nv12_known_colours) {
 		nv12::convert_rows(nv12::Nv12{ y.data(), uv.data(), (size_t)w, (size_t)w }, w, 0, h, true, false, out.data());
 		for (int ch = 0; ch < 3; ch++) CHECK_NEAR(out[ch], c.second, 2);
 		CHECK_EQ((int)out[3], 255);
+	}
+}
+
+TEST(nv12_padded_rows) {
+	// Rows written `out_w` pixels apart (video frames padded for upload) hold
+	// the same pixels as a tightly packed conversion, and the padding is untouched.
+	const int w = 34, h = 4, out_w = 64;
+	const Picture p = random_picture(w, h, 7);
+	const nv12::I420 src{ p.y.data(), p.u.data(), p.v.data(), (size_t)w, (size_t)(w + 1) / 2 };
+	std::vector<uint8_t> packed((size_t)w * h * 4), padded((size_t)out_w * h * 4, 0xAB);
+	nv12::convert_rows(src, w, 0, h, true, false, packed.data());
+	nv12::convert_rows(src, w, 0, h, true, false, padded.data(), out_w);
+	for (int y = 0; y < h; y++) {
+		CHECK(memcmp(packed.data() + (size_t)y * w * 4, padded.data() + (size_t)y * out_w * 4, (size_t)w * 4) == 0);
+		CHECK_EQ((int)padded[((size_t)y * out_w + w) * 4], 0xAB);
 	}
 }

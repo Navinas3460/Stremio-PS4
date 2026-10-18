@@ -255,7 +255,7 @@ void Renderer::image_cover(const Texture &t, float x, float y, float w, float h,
 	}
 	// Crop the texture to the box's aspect ratio, centred.
 	float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-	const float box = w / h, img = (float)t.width / t.height;
+	const float box = w / h, img = (float)t.picture_width() / t.height;
 	if (img > box) {
 		const float keep = box / img;
 		u0 = (1 - keep) / 2;
@@ -265,7 +265,8 @@ void Renderer::image_cover(const Texture &t, float x, float y, float w, float h,
 		v0 = (1 - keep) / 2;
 		v1 = v0 + keep;
 	}
-	quad(IMAGE, t.id, Color{ 1, 1, 1, alpha }, x, y, w, h, u0, v0, u1, v1);
+	const float shown = (float)t.picture_width() / t.width; // padding columns stay off screen
+	quad(IMAGE, t.id, Color{ 1, 1, 1, alpha }, x, y, w, h, u0 * shown, v0, u1 * shown, v1);
 }
 
 // A 1x256 texture: rgb = the fade colour, alpha = 0..1 top to bottom.

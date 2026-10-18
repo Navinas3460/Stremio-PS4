@@ -22,6 +22,17 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sdl2 glesv2 freetype2 libcurl libavformat libavcodec libswscale libswresample libavutil)
 
+# The torrent engine (src/torrent), shared by the app and tools/torrent_fetch.
+set(TORRENT_SOURCES
+    src/torrent/bencode.cpp
+    src/torrent/dht.cpp
+    src/torrent/magnet.cpp
+    src/torrent/net.cpp
+    src/torrent/sha1.cpp
+    src/torrent/torrent_stream.cpp
+    src/torrent/trackers.cpp
+)
+
 add_executable(stremio_ps4
     src/main.cpp
     src/platform/platform_desktop.cpp
@@ -35,6 +46,8 @@ add_executable(stremio_ps4
     src/net/http_curl.cpp
     src/net/images.cpp
     src/net/range_reader.cpp
+    src/net/byte_source.cpp
+    ${TORRENT_SOURCES}
     src/ui/home_screen.cpp
     src/ui/card.cpp
     src/ui/components.cpp
@@ -62,6 +75,18 @@ add_custom_command(TARGET stremio_ps4 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:stremio_ps4>/assets
     COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/sce_sys/icon0.png $<TARGET_FILE_DIR:stremio_ps4>/icon0.png)
 
+# Command-line torrent client for engine development: streams a magnet link's
+# file like the player would and reports timings (see tools/torrent_fetch.cpp).
+add_executable(torrent_fetch
+    tools/torrent_fetch.cpp
+    src/net/http.cpp
+    src/net/http_curl.cpp
+    ${TORRENT_SOURCES}
+)
+target_link_libraries(torrent_fetch PRIVATE PkgConfig::DEPS)
+target_compile_options(torrent_fetch PRIVATE -Wall -Wno-unused-function)
+target_compile_definitions(torrent_fetch PRIVATE APP_VERSION="${APP_VERSION}")
+
 # Unit tests: the platform-independent code, plus the Stremio facade against
 # fake platform / HTTP layers (tests/fakes.cpp). No window, network or PS4.
 option(STREMIO_TESTS "Build the unit tests" ON)
@@ -75,6 +100,10 @@ if(STREMIO_TESTS)
         tests/test_nv12.cpp
         tests/test_stremio.cpp
         tests/test_subtitles.cpp
+        tests/test_torrent.cpp
+        src/torrent/bencode.cpp
+        src/torrent/magnet.cpp
+        src/torrent/sha1.cpp
         src/core/json.cpp
         src/core/models.cpp
         src/core/stremio.cpp

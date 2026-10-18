@@ -99,11 +99,13 @@ struct P10 {
 
 // --- Conversion -------------------------------------------------------------------------
 
-// Columns [x0, w) of rows [row0, row1), scalar (reference).
+// Columns [x0, w) of rows [row0, row1), scalar (reference). Output rows are
+// `out_w` pixels apart (0 = w).
 template <class Src>
-void scalar_columns(const Src &src, int x0, int w, int row0, int row1, const Coefficients &c, uint8_t *out) {
+void scalar_columns(const Src &src, int x0, int w, int row0, int row1, const Coefficients &c, uint8_t *out, int out_w = 0) {
+	if (out_w <= 0) out_w = w;
 	for (int row = row0; row < row1; row++) {
-		uint8_t *o = out + (size_t)row * w * 4;
+		uint8_t *o = out + (size_t)row * out_w * 4;
 		for (int col = x0; col < w; col++) {
 			const int u = src.u_at(row, col) - 128, v = src.v_at(row, col) - 128;
 			const int l = c.ky * (src.luma(row, col) - c.y_offset);
@@ -130,9 +132,11 @@ inline void store16(uint8_t *dst, __m128i r_lo, __m128i r_hi, __m128i g_lo, __m1
 	_mm_storeu_si128((__m128i *)(dst + 48), _mm_unpackhi_epi16(rg_hi, ba_hi));
 }
 
-// Rows [row0, row1) (even) of a w-wide picture into tightly packed RGBA.
+// Rows [row0, row1) (even) of a w-wide picture into RGBA rows `out_w` pixels
+// apart (0 = tightly packed).
 template <class Src>
-void convert_rows(const Src &src, int w, int row0, int row1, bool bt709, bool full_range, uint8_t *out) {
+void convert_rows(const Src &src, int w, int row0, int row1, bool bt709, bool full_range, uint8_t *out, int out_w = 0) {
+	if (out_w <= 0) out_w = w;
 	const Coefficients c = coefficients(bt709, full_range, 6);
 	const int simd_w = w & ~15;
 	const __m128i zero = _mm_setzero_si128();
@@ -141,7 +145,7 @@ void convert_rows(const Src &src, int w, int row0, int row1, bool bt709, bool fu
 	const __m128i gu = _mm_set1_epi16((short)c.gu), gv = _mm_set1_epi16((short)c.gv);
 	const __m128i bu = _mm_set1_epi16((short)c.bu), round = _mm_set1_epi16(32);
 	for (int row = row0; row + 1 < row1; row += 2) {
-		uint8_t *oa = out + (size_t)row * w * 4;
+		uint8_t *oa = out + (size_t)row * out_w * 4;
 		for (int col = 0; col < simd_w; col += 16) {
 			__m128i u, v;
 			src.chroma8(row, col, u, v);
@@ -158,13 +162,13 @@ void convert_rows(const Src &src, int w, int row0, int row1, bool bt709, bool fu
 				const __m128i yy = src.luma16(row + k, col);
 				const __m128i y_lo = _mm_mullo_epi16(_mm_sub_epi16(_mm_unpacklo_epi8(yy, zero), y_off), ky);
 				const __m128i y_hi = _mm_mullo_epi16(_mm_sub_epi16(_mm_unpackhi_epi8(yy, zero), y_off), ky);
-				store16(oa + (size_t)k * w * 4 + col * 4, _mm_adds_epi16(y_lo, r_lo), _mm_adds_epi16(y_hi, r_hi),
+				store16(oa + (size_t)k * out_w * 4 + col * 4, _mm_adds_epi16(y_lo, r_lo), _mm_adds_epi16(y_hi, r_hi),
 						_mm_adds_epi16(y_lo, g_lo), _mm_adds_epi16(y_hi, g_hi), _mm_adds_epi16(y_lo, b_lo),
 						_mm_adds_epi16(y_hi, b_hi));
 			}
 		}
 	}
-	if (simd_w < w) scalar_columns(src, simd_w, w, row0, row1, coefficients(bt709, full_range, 8), out);
+	if (simd_w < w) scalar_columns(src, simd_w, w, row0, row1, coefficients(bt709, full_range, 8), out, out_w);
 }
 
 // AvPlayer's NV12 (both planes share one pitch).

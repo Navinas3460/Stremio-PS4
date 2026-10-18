@@ -112,12 +112,35 @@ TEST(models_streams) {
 	CHECK_EQ(direct.request_headers.size(), (size_t)1);
 	CHECK_EQ(direct.request_headers[0], "Referer: https://x");
 
-	const StreamItem torrent = StreamItem::from_json(Json::parse(R"({"infoHash":"abc"})"), "Torrentio");
-	CHECK_EQ(torrent.playable_url(), "");
-	CHECK_EQ(torrent.unsupported_reason(), "Torrent: needs a streaming server");
+	const StreamItem bad_hash = StreamItem::from_json(Json::parse(R"({"infoHash":"abc"})"), "Torrentio");
+	CHECK_EQ(bad_hash.playable_url(), "");
+	CHECK_EQ(bad_hash.unsupported_reason(), "Torrent: invalid info-hash");
+	const StreamItem torrent = StreamItem::from_json(Json::parse(R"({"infoHash":"08ADA5A7A6183AAE1E09D831DF6748D566095A10",
+		"fileIdx":2,"sources":["tracker:udp://tracker.example:1337/announce","dht:08ada5a7a6183aae1e09d831df6748d566095a10"]})"), "Torrentio");
+	CHECK_EQ(torrent.unsupported_reason(), "");
+	CHECK_EQ(torrent.playable_url(), "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&so=2"
+		"&tr=udp%3A%2F%2Ftracker.example%3A1337%2Fannounce");
 	const StreamItem rtmp = StreamItem::from_json(Json::parse(R"({"url":"rtmp://x/y"})"), "A");
 	CHECK_EQ(rtmp.playable_url(), "");
 	CHECK_EQ(rtmp.unsupported_reason(), "Unsupported link");
+}
+
+TEST(stream_torrent_stats) {
+	// Torrentio's text (real response, 2026-10-19): name/path lines, the stats
+	// line, then audio-language flags.
+	const StreamItem t = StreamItem::from_json(Json::parse(R"({"infoHash":"08ada5a7a6183aae1e09d831df6748d566095a10",
+		"title":"The Kid 1921 1080p\n\ud83d\udc64 24 \ud83d\udcbe 1.11 GB \u2699\ufe0f MagnetDL\n\ud83c\uddec\ud83c\udde7 / \ud83c\uddea\ud83c\uddf8"})"),
+		"Torrentio");
+	CHECK_EQ(t.seeders, 24);
+	CHECK_EQ(t.size_label, "1.11 GB");
+	CHECK_EQ(t.origin, "MagnetDL");
+	CHECK_EQ(t.details(), "The Kid 1921 1080p\nMagnetDL\n\xF0\x9F\x87\xAC\xF0\x9F\x87\xA7 / \xF0\x9F\x87\xAA\xF0\x9F\x87\xB8");
+
+	// Seeders only, and no stats at all.
+	CHECK_EQ(StreamItem::from_json(Json::parse(R"({"title":"x \ud83d\udc64 0"})"), "A").seeders, 0);
+	const StreamItem plain = StreamItem::from_json(Json::parse(R"({"url":"https://x/a.mkv","title":"Film.mkv"})"), "A");
+	CHECK_EQ(plain.seeders, -1);
+	CHECK_EQ(plain.details(), "Film.mkv");
 }
 
 TEST(languages) {

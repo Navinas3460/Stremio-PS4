@@ -31,7 +31,8 @@ colour. The values are the brand palette.
 | `PRIMARY` | `#0070D1` | Focus rings, active tab, progress (Sapphire Sky) |
 | `SECONDARY` | `#685CEE` | Focus ring on an already-active item (Majorelle Blue) |
 | `ACCENT` | `#84DD63` | Badges, "in use" dots, toasts (Radioactive Grass) |
-| `ERROR` | `#FF8A80` | Errors, the sign-out confirmation |
+| `WARNING` | `#F2C14E` | Torrents with 5–14 seeders |
+| `ERROR` | `#FF8A80` | Errors, the sign-out confirmation, torrents with under 5 seeders |
 
 As in daisyUI, `PRIMARY` is kept for what has the focus or is selected;
 headings use `BASE_CONTENT`.
@@ -52,14 +53,15 @@ component:
 | Component | daisyUI | Where |
 |---|---|---|
 | Focus chrome (`begin_focus` / `end_focus`) | btn, card | Every focusable element |
-| `chip` | btn, filter | Tabs, the Library's type and sort filters |
-| `badge` | badge | "3 new episodes" on cards, "In library" |
+| `chip` | btn, filter | Tabs, the Library's type and sort filters, the details page's add-on filter |
+| `badge` | badge | "3 new episodes" on cards, "In library", a torrent's seeders (green 15+, amber 5–14, red under 5) |
 | `progress` | progress | Watch progress, the player's timeline |
 | `status` | status | The playing track, the current episode |
 | `avatar` | avatar | The signed-in account on Home |
 | `hints`, `kbd` | kbd | Controller hints (× Select, ○ Back, L1 / R1) |
 | `Toast` | toast + alert | Short confirmations and errors |
 | Tab bar (`tab_bar.h`) | tabs-box | The four main tabs |
+| Add-on filter (`DetailsScreen::draw_filter`) | tabs-box, smaller | All / one add-on above the streams; L1 / R1 or Up from the first stream |
 | Card rows (`card.h`) | carousel | Home and Search |
 | Poster cards (`draw_poster`) | card | The Library grid: artwork, caption below |
 

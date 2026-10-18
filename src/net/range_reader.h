@@ -7,6 +7,7 @@
 #pragma once
 
 #include "../platform/threads.h"
+#include "byte_source.h"
 #include "http.h"
 
 #include <atomic>
@@ -15,20 +16,20 @@
 #include <string>
 #include <vector>
 
-class RangeReader {
+class RangeReader : public ByteSource {
 public:
 	RangeReader(const std::string &url, const std::vector<std::string> &headers);
-	~RangeReader(); // stops and waits for the download threads
+	~RangeReader() override; // stops and waits for the download threads
 
 	// Connects and learns the size (blocking). False on failure; see error().
-	bool open();
+	bool open() override;
 	// Copies up to `len` bytes at `pos` into `buf`, waiting for the download
 	// if needed. Returns the byte count, 0 at the end, -1 on error or abort.
-	int read(uint64_t pos, uint8_t *buf, int len);
-	uint64_t size() const { return size_; }
+	int read(uint64_t pos, uint8_t *buf, int len) override;
+	uint64_t size() const override { return size_; }
 	// Makes pending and future reads return -1 (e.g. the player is closing).
-	void abort();
-	std::string error();
+	void abort() override;
+	std::string error() override;
 
 private:
 	static const int WORKERS = 4;
