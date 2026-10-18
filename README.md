@@ -60,9 +60,10 @@ itself.
 
 - **Torrent streams** aren't supported yet; they need a streaming server.
   Streams that can't be played are listed but greyed out.
-- **The Library tab** is a placeholder; Continue watching is on Home.
 - **Subtitle fonts:** subtitles in scripts that Inter doesn't cover (for
   example Arabic, Chinese, Japanese) aren't rendered yet.
+
+What's planned next is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Building
 
