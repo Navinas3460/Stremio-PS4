@@ -154,3 +154,7 @@ Stremio PS4 itself is licensed under the GNU GPL v3.0 ([LICENSE](LICENSE)).
   requirement. `tools/build_ffmpeg_ps4.sh` fetches FFmpeg's source.
 - **Inter fonts:** SIL Open Font License (`assets/fonts/Inter-LICENSE.txt`).
 - **stb:** public domain / MIT.
+- **stremio-core:** the library, add-on and player-progress logic in
+  `src/core` is ported from [stremio-core](https://github.com/Stremio/stremio-core),
+  MIT, Copyright © 2019 SmartCode OOD
+  (`third_party/stremio-core/LICENSE.md`).

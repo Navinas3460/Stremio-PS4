@@ -1,5 +1,7 @@
 # Stremio PS4
 
+<img src="sce_sys/icon0.png" alt="Stremio PS4 icon" width="160">
+
 An unofficial, native [Stremio](https://www.stremio.com) client for
 jailbroken PlayStation 4 consoles. It's designed for the TV and the
 DualShock 4, and plays the streams from your Stremio add-ons on the console
@@ -71,15 +73,27 @@ See [BUILDING.md](BUILDING.md). `./build.sh ps4` builds the package
 reproducibly in Docker. The technical background is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Contributing
+
+Bug reports and pull requests are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Stremio PS4 is free software, licensed under the
 [GNU General Public License v3.0](LICENSE). It bundles FFmpeg (LGPL 2.1), the
-Inter fonts (SIL Open Font License) and stb (public domain); see
+Inter fonts (SIL Open Font License) and stb (public domain), and parts of
+its logic are ported from stremio-core (MIT, © 2019 SmartCode OOD); see
 [BUILDING.md](BUILDING.md#licences-of-bundled-components).
 
 ## Disclaimer
 
-This project is not affiliated with Stremio. It uses Stremio's public API
-and add-on protocol, and it doesn't host or provide any content. What you
-watch comes from the add-ons you install.
+This project is not affiliated with, endorsed or sponsored by Stremio (Smart
+Code OOD) or Sony Interactive Entertainment. "Stremio" is a trademark of
+Smart Code OOD; "PlayStation", "PS4" and the PlayStation button symbols are
+trademarks of Sony Interactive Entertainment Inc. They are used only to
+describe what this app works with.
+
+Stremio PS4 is homebrew for jailbroken consoles. Running it is at your own
+risk. It uses Stremio's public API and add-on protocol, and it doesn't host
+or provide any content. What you watch comes from the add-ons you install.
