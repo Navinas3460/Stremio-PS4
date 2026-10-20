@@ -22,7 +22,7 @@ STAGE       := $(OUT)/pkg
 
 SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cpp src/render/font.cpp \
                src/core/json.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
-               src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp src/net/byte_source.cpp \
+               src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp src/net/byte_source.cpp src/net/urls.cpp \
                src/torrent/bencode.cpp src/torrent/dht.cpp src/torrent/magnet.cpp src/torrent/net.cpp src/torrent/sha1.cpp \
                src/torrent/torrent_stream.cpp src/torrent/trackers.cpp \
                src/ui/home_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \

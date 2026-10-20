@@ -3,6 +3,7 @@
 #include "http.h"
 
 #include "../platform/platform.h"
+#include "urls.h"
 
 #include <stdint.h>
 #include <orbis/Http.h>
@@ -58,7 +59,7 @@ Response perform(const Request &request) {
 		res.error = describe(tpl);
 		return res;
 	}
-	http_set_auto_redirect(tpl, 1);
+	http_set_auto_redirect(tpl, 1); // only the app's own requests: no credential headers
 	sceHttpSetConnectTimeOut(tpl, 10 * 1000 * 1000);
 	http_set_recv_timeout(tpl, 30 * 1000 * 1000);
 	int conn = sceHttpCreateConnectionWithURL(tpl, request.url.c_str(), 1);
@@ -94,6 +95,11 @@ Response perform(const Request &request) {
 					break;
 				}
 				if (n == 0) {
+					break;
+				}
+				if (res.body.size() + (size_t)n > request.max_body) {
+					res.error = "Response too large";
+					res.body.clear();
 					break;
 				}
 				res.body.append(buf.data(), (size_t)n);
@@ -145,8 +151,10 @@ public:
 			std::string location;
 			const int rc = fetch_once(start, end, out, total, cancel, error, location);
 			if (location.empty()) return rc;
-			url_ = resolve(url_, location);
-			platform::log("range: redirected to %s", url_.c_str());
+			const std::string next = resolve(url_, location);
+			headers_ = urls::redirect_headers(url_, next, headers_);
+			url_ = next;
+			platform::log("range: redirected to %s", urls::for_log(url_).c_str());
 			if (conn_ >= 0) sceHttpDeleteConnection(conn_);
 			conn_ = sceHttpCreateConnectionWithURL(tpl_, url_.c_str(), 1);
 		}

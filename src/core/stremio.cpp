@@ -1,6 +1,7 @@
 #include "stremio.h"
 
 #include "../net/http.h"
+#include "../net/urls.h"
 #include "../platform/platform.h"
 
 #include <algorithm>
@@ -359,9 +360,9 @@ void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void
 				Json d = Json::object();
 				d.set("transportUrl", url).set("manifest", manifest);
 				loaded->push_back({ i, Addon::from_json(d) });
-				platform::log("extra add-on: %s", url.c_str());
+				platform::log("extra add-on: %s", urls::for_log(url).c_str());
 			} else {
-				platform::log("extra add-on %s failed: %s", url.c_str(), error.c_str());
+				platform::log("extra add-on %s failed: %s", urls::for_log(url).c_str(), error.c_str());
 				if (demo_) addons_error_ = error;
 			}
 			if (--*remaining > 0) return;

@@ -1,6 +1,7 @@
 #include "range_reader.h"
 
 #include "../platform/platform.h"
+#include "urls.h"
 
 #include <unistd.h>
 
@@ -150,8 +151,9 @@ void RangeReader::download_loop(Worker &w) {
 		}
 		size_ = total;
 		threads::Lock lock(mutex_);
+		headers_ = urls::redirect_headers(url_, conn->url(), headers_); // before the other workers start
 		url_ = conn->url(); // the other workers skip the redirects
-		platform::log("range: %s: %llu bytes (HTTP %d), %d connections", url_.c_str(), (unsigned long long)total, status,
+		platform::log("range: %s: %llu bytes (HTTP %d), %d connections", urls::for_log(url_).c_str(), (unsigned long long)total, status,
 				WORKERS);
 		opened_ = true;
 		arrived_.notify_all();

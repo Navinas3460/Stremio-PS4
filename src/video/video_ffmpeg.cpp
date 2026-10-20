@@ -13,6 +13,7 @@
 
 #include "../core/languages.h"
 #include "../net/byte_source.h"
+#include "../net/urls.h"
 #include "../platform/platform.h"
 #include "../platform/threads.h"
 
@@ -811,7 +812,7 @@ private:
 			fail("No playable video or audio in this stream");
 			goto done;
 		}
-		platform::log("ffmpeg: opened %s in %.1f s: %s, video %s %dx%d, audio %s %d ch, %.0f s", url_.c_str(),
+		platform::log("ffmpeg: opened %s in %.1f s: %s, video %s %dx%d, audio %s %d ch, %.0f s", urls::for_log(url_).c_str(),
 				platform::now() - t_open, fmt->iformat->name, vi >= 0 ? avcodec_get_name(vdec->codec_id) : "-",
 				vi >= 0 ? vdec->width : 0, vi >= 0 ? vdec->height : 0, ai >= 0 ? avcodec_get_name(adec->codec_id) : "-",
 				ai >= 0 ? adec->ch_layout.nb_channels : 0, duration_.load());

@@ -19,8 +19,10 @@ Open an issue with:
 - **The app log:** `/data/stremio_ps4.log`, fetched with GoldHEN's FTP
   server. For a crash, also add the kernel log (`nc <ps4-ip> 3232`).
 
-**Check the log before posting it.** Stream URLs from debrid services can
-contain your personal tokens, so remove them first.
+**Check the log before posting it.** The app shortens stream and add-on URLs
+in the log to hide the account keys they carry. Logs from versions before
+1.0.4 contain full URLs, which can include your personal debrid tokens, so
+remove those first.
 
 ## Suggesting a feature
 

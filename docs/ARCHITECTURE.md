@@ -87,6 +87,25 @@ client for one file:
 `build/torrent_fetch MAGNET [MiB] [seek] [pace MB/s]` (desktop) reports time
 to the file list, first byte, speed and seek delay.
 
+## Network safety
+
+Add-ons and image hosts are untrusted, so the HTTP layer limits what they can
+do (`src/net/urls.h`, unit tested):
+
+- **Redirects.** A redirect to another origin drops the `Authorization`,
+  `Cookie` and `Proxy-Authorization` headers from an add-on's
+  `proxyHeaders`, as browsers and curl do. Other headers, such as `Referer`,
+  are kept, because CDNs need them. The range reader then requests the final
+  URL directly with the reduced set.
+- **Sizes.** Responses are capped at 32 MB, and images at 16 MB. Before
+  decoding, images larger than 8192 pixels on a side or 4096 × 4096 pixels
+  in total are refused.
+- **Log.** URLs are logged as their origin and last path segment
+  (`urls::for_log`). Debrid links and add-on URLs carry account keys in the
+  path or query.
+- **Desktop files.** The data folder is `0700` and its files `0600`, because
+  it holds the Stremio session.
+
 ## PS4 pitfalls
 
 - **No automatic library loading.** Every system library must be loaded

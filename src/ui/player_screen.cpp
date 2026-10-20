@@ -3,6 +3,7 @@
 #include "../core/languages.h"
 #include "../core/stremio.h"
 #include "../net/http.h"
+#include "../net/urls.h"
 #include "../platform/platform.h"
 #include "theme.h"
 
@@ -65,7 +66,7 @@ PlayerScreen::PlayerScreen(Fonts &fonts, Navigator &nav, const Args &args)
 	: fonts_(fonts), nav_(nav), args_(args), player_(VideoPlayer::create()) {
 	const int64_t resume_ms = stremio().player_start(args_.meta_id, args_.video_id, args_.has_meta ? &args_.meta : nullptr);
 	session_ = true;
-	platform::log("player: open %s at %.1f s", args_.stream.playable_url().c_str(), resume_ms / 1000.0);
+	platform::log("player: open %s at %.1f s", urls::for_log(args_.stream.playable_url()).c_str(), resume_ms / 1000.0);
 	player_->open(args_.stream.playable_url(), args_.stream.request_headers, resume_ms / 1000.0);
 	overlay_timer_ = OVERLAY_HIDE;
 	pref_sub_lang_ = read_pref(PREF_SUB);

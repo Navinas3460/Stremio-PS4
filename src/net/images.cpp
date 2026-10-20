@@ -23,6 +23,14 @@ namespace {
 const int MAX_WIDTH = 640;          // artwork is shown at card size
 const size_t MAX_TEXTURES = 160;    // ~160 x 0.9 MB of VRAM at most
 const int UPLOADS_PER_FRAME = 2;    // avoid frame hitches
+// Limits checked before decoding: a small file can claim a huge picture.
+const size_t MAX_FILE = 16 * 1024 * 1024;
+const int MAX_SIDE = 8192;
+const int64_t MAX_PIXELS = 4096LL * 4096; // 64 MB as RGBA
+
+bool size_ok(int w, int h) {
+	return w > 0 && h > 0 && w <= MAX_SIDE && h <= MAX_SIDE && (int64_t)w * h <= MAX_PIXELS;
+}
 
 struct Decoded {
 	int width = 0, height = 0;
@@ -73,13 +81,14 @@ bool decode_webp(const std::string &data, Decoded &out) {
 	bool ok = false;
 	if (ctx && packet && frame) {
 		ctx->thread_count = 1;
+		ctx->max_pixels = MAX_PIXELS; // FFmpeg refuses larger frames before allocating them
 		if (avcodec_open2(ctx, codec, nullptr) == 0 && av_new_packet(packet, (int)data.size()) == 0) {
 			memcpy(packet->data, data.data(), data.size());
 			int err = avcodec_send_packet(ctx, packet);
 			if (err == 0) err = avcodec_receive_frame(ctx, frame);
 			if (err == AVERROR(EAGAIN) && avcodec_send_packet(ctx, nullptr) == 0) err = avcodec_receive_frame(ctx, frame);
 			const int w = frame->width, h = frame->height;
-			SwsContext *sws = err == 0 ? sws_getContext(w, h, (AVPixelFormat)frame->format, w, h, AV_PIX_FMT_RGBA,
+			SwsContext *sws = err == 0 && size_ok(w, h) ? sws_getContext(w, h, (AVPixelFormat)frame->format, w, h, AV_PIX_FMT_RGBA,
 												   SWS_BILINEAR, nullptr, nullptr, nullptr)
 									   : nullptr;
 			if (sws) {
@@ -101,8 +110,11 @@ bool decode_webp(const std::string &data, Decoded &out) {
 
 void start(const std::string &url) {
 	g_entries[url].last_used = g_frame;
-	http::get(
-			url,
+	http::Request request;
+	request.url = url;
+	request.max_body = MAX_FILE;
+	http::send(
+			request,
 			[url](http::Response &res) {
 				auto decoded = std::static_pointer_cast<Decoded>(res.payload);
 				if (!res.ok() || !decoded) {
@@ -117,7 +129,12 @@ void start(const std::string &url) {
 				}
 				auto img = std::make_shared<Decoded>();
 				int w = 0, h = 0, n = 0;
-				uint8_t *px = stbi_load_from_memory((const stbi_uc *)res.body.data(), (int)res.body.size(), &w, &h, &n, 4);
+				const bool stb = stbi_info_from_memory((const stbi_uc *)res.body.data(), (int)res.body.size(), &w, &h, &n);
+				if (stb && !size_ok(w, h)) {
+					res.error = "image too large";
+					return;
+				}
+				uint8_t *px = !stb ? nullptr : stbi_load_from_memory((const stbi_uc *)res.body.data(), (int)res.body.size(), &w, &h, &n, 4);
 				if (px) {
 					img->width = w;
 					img->height = h;

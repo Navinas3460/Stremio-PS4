@@ -12,7 +12,9 @@
 
 #include <SDL2/SDL.h>
 
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <cstdarg>
 #include <ctime>
@@ -367,8 +369,10 @@ std::string data_dir() {
 		dir = base + "/stremio_ps4";
 		struct stat st;
 		if (stat(dir.c_str(), &st) != 0) rename((base + "/stremio_tv").c_str(), dir.c_str()); // the app's earlier name
+		chmod(dir.c_str(), 0700); // earlier versions made it 0755
 	}
-	mkdir(dir.c_str(), 0755);
+	// Private to this user: the folder holds the Stremio session (auth key).
+	mkdir(dir.c_str(), 0700);
 	return dir + "/";
 }
 
@@ -384,10 +388,16 @@ bool read_file(const std::string &path, std::string &out) {
 }
 
 bool write_file(const std::string &path, const std::string &data) {
-	std::ofstream f(path, std::ios::binary | std::ios::trunc);
-	if (!f) return false;
-	f << data;
-	return (bool)f;
+	const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0) return false;
+	fchmod(fd, 0600); // files written by earlier versions were 0644
+	size_t done = 0;
+	while (done < data.size()) {
+		const ssize_t n = ::write(fd, data.data() + done, data.size() - done);
+		if (n <= 0) break;
+		done += (size_t)n;
+	}
+	return ::close(fd) == 0 && done == data.size();
 }
 
 bool remove_file(const std::string &path) {

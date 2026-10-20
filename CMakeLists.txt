@@ -47,6 +47,7 @@ add_executable(stremio_ps4
     src/net/images.cpp
     src/net/range_reader.cpp
     src/net/byte_source.cpp
+    src/net/urls.cpp
     ${TORRENT_SOURCES}
     src/ui/home_screen.cpp
     src/ui/card.cpp
@@ -81,6 +82,7 @@ add_executable(torrent_fetch
     tools/torrent_fetch.cpp
     src/net/http.cpp
     src/net/http_curl.cpp
+    src/net/urls.cpp
     ${TORRENT_SOURCES}
 )
 target_link_libraries(torrent_fetch PRIVATE PkgConfig::DEPS)
@@ -101,6 +103,8 @@ if(STREMIO_TESTS)
         tests/test_stremio.cpp
         tests/test_subtitles.cpp
         tests/test_torrent.cpp
+        tests/test_urls.cpp
+        src/net/urls.cpp
         src/torrent/bencode.cpp
         src/torrent/magnet.cpp
         src/torrent/sha1.cpp

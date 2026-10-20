@@ -1,5 +1,6 @@
 // Asynchronous HTTP: requests run on worker threads; completion callbacks run
-// on the main thread from poll(). Redirects are followed. TLS certificates are
+// on the main thread from poll(). Redirects are followed, without the
+// credential headers when they lead to another origin (see urls.h). TLS certificates are
 // verified (the Stremio auth key travels over these connections).
 #pragma once
 
@@ -17,6 +18,7 @@ struct Request {
 	std::string url;
 	std::vector<std::string> headers; // "Name: value"
 	std::string body;
+	size_t max_body = 32 * 1024 * 1024; // larger responses fail ("Response too large")
 };
 
 struct Response {
