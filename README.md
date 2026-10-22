@@ -74,8 +74,10 @@ itself.
   their own text, without the badge.
 - **YouTube and external links** aren't supported. Streams that can't be
   played are listed but greyed out.
-- **Subtitle fonts:** subtitles in scripts that Inter doesn't cover (for
-  example Arabic, Chinese, Japanese) aren't rendered yet.
+- **Non-Latin subtitles** (Arabic, Hebrew, Persian, Chinese, Japanese,
+  Korean, Hindi and other Indic scripts, Thai...) are drawn with bundled Noto
+  fonts and shaped with HarfBuzz. Files in legacy encodings are converted
+  using the subtitle's language. Styling (ASS colours, positions) isn't kept.
 
 What's planned next is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -93,8 +95,9 @@ Bug reports and pull requests are welcome; see
 ## License
 
 Stremio PS4 is free software, licensed under the
-[GNU General Public License v3.0](LICENSE). It bundles FFmpeg (LGPL 2.1), the
-Inter fonts (SIL Open Font License) and stb (public domain), and parts of
+[GNU General Public License v3.0](LICENSE). It bundles FFmpeg (LGPL 2.1),
+HarfBuzz (MIT), the Inter and Noto fonts (SIL Open Font License) and stb
+(public domain), and parts of
 its logic are ported from stremio-core (MIT, © 2019 SmartCode OOD); see
 [BUILDING.md](BUILDING.md#licences-of-bundled-components).
 

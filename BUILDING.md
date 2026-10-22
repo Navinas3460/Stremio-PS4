@@ -25,6 +25,7 @@ build image and FFmpeg, which takes about 10 minutes. FFmpeg is cached in
 | OpenOrbis PS4 toolchain | v0.5.4 `toolchain-llvm-18.tar.gz` | sha256 in `tools/docker/Dockerfile` |
 | OpenSSL 1.1 (needed by PkgTool.Core) | `libssl1.1_1.1.1f-1ubuntu2.24` | sha256 in `tools/docker/Dockerfile` |
 | FFmpeg | 7.1, LGPL, static, only the parts the app uses | sha256 in `tools/build_ffmpeg_ps4.sh` |
+| HarfBuzz | 14.6.0, MIT, static, core only | sha256 in `tools/build_harfbuzz_ps4.sh` |
 
 ## PS4 package without Docker (Linux)
 
@@ -43,7 +44,8 @@ export OO_PS4_TOOLCHAIN=/path/to/OpenOrbis/PS4Toolchain
 ./build.sh ps4 --local
 ```
 
-This runs `tools/build_ffmpeg_ps4.sh` once, then `make -f Makefile.ps4`.
+This runs `tools/build_ffmpeg_ps4.sh` and `tools/build_harfbuzz_ps4.sh` once,
+then `make -f Makefile.ps4`.
 
 ## Versions and releases
 
@@ -72,8 +74,8 @@ Packages needed:
 
 | Distribution | Packages |
 |---|---|
-| Arch | `cmake sdl2 mesa freetype2 curl ffmpeg` |
-| Ubuntu | `cmake g++ pkg-config libsdl2-dev libgles-dev libfreetype-dev libcurl4-openssl-dev libavformat-dev libavcodec-dev libswscale-dev libswresample-dev libavutil-dev` |
+| Arch | `cmake sdl2 mesa freetype2 harfbuzz curl ffmpeg` |
+| Ubuntu | `cmake g++ pkg-config libsdl2-dev libgles-dev libfreetype-dev libharfbuzz-dev libcurl4-openssl-dev libavformat-dev libavcodec-dev libswscale-dev libswresample-dev libavutil-dev` |
 
 ```sh
 ./build.sh desktop
@@ -158,15 +160,17 @@ and the PS4 pitfalls it works around.
 | `src/core` | Stremio logic: API, library, add-ons, player rules, JSON, subtitles |
 | `src/net` | HTTP (curl / libSceHttp), images, the byte sources video is read from (parallel range reader for HTTP) |
 | `src/torrent` | Torrent engine: trackers, DHT, peer wire, piece picking, memory cache |
-| `src/render` | OpenGL ES 2 renderer and FreeType fonts |
+| `src/render` | OpenGL ES 2 renderer, FreeType fonts with fallbacks, HarfBuzz shaping, bidi |
 | `src/ui` | Screens (sign-in, Home, Search, Library, Settings, details, player), theme tokens, shared components |
 | `src/video` | Players: FFmpeg (default), AvPlayer (PS4 hardware), YUV conversion |
 | `src/platform` | PS4 (Piglet, pad, kernel) and desktop (SDL2) back-ends |
-| `assets` | Inter fonts |
+| `assets` | Inter fonts; Noto fonts for other scripts |
 | `sce_sys` | Package icon |
 | `third_party/stb` | stb_image, stb_image_write |
+| `third_party/harfbuzz` | HarfBuzz licence (the source is fetched by `tools/build_harfbuzz_ps4.sh`) |
+| `third_party/fonttools` | fontTools licence (`tools/otf2ttf.py` is adapted from it) |
 | `tests` | Unit tests, fake platform / HTTP layers |
-| `tools` | FFmpeg build script, Docker build image, `torrent_fetch` |
+| `tools` | FFmpeg and HarfBuzz build scripts, CJK font converter, Docker build image, `torrent_fetch` |
 | `docs` | Architecture and design notes |
 
 ## Licences of bundled components
@@ -177,7 +181,23 @@ Stremio PS4 itself is licensed under the GNU GPL v3.0 ([LICENSE](LICENSE)).
   LGPL 2.1 is compatible with the GPL v3.0. Publishing the complete source
   of the app, as this repository does, also covers FFmpeg's relinking
   requirement. `tools/build_ffmpeg_ps4.sh` fetches FFmpeg's source.
+- **HarfBuzz** ([harfbuzz.github.io](https://harfbuzz.github.io)): text
+  shaping, linked statically. MIT ("Old MIT") licence, Copyright © the
+  HarfBuzz authors (Behdad Esfahbod, Google, Red Hat and others; full list
+  in `third_party/harfbuzz/COPYING`). `tools/build_harfbuzz_ps4.sh` fetches
+  its source; desktop builds use the system library.
 - **Inter fonts:** SIL Open Font License (`assets/fonts/Inter-LICENSE.txt`).
+- **Noto fonts** ([notofonts](https://github.com/notofonts),
+  [noto-cjk](https://github.com/notofonts/noto-cjk)): fallback fonts for
+  Arabic, Hebrew, Indic, Thai, CJK and other scripts, unmodified except
+  Noto Sans CJK, converted to TrueType outlines and stripped of unreachable
+  glyphs by `tools/otf2ttf.py`, because the PS4's FreeType (2.5.1) can't
+  render CFF fonts nor open a TrueType font of 65535 glyphs. SIL Open Font License,
+  Copyright © The Noto Project Authors; Noto Sans CJK Copyright © 2014-2021
+  Adobe (`assets/fonts/Noto-LICENSE.txt`).
+- **fontTools** ([fonttools](https://github.com/fonttools/fonttools)):
+  `tools/otf2ttf.py` is adapted from its `Snippets/otf2ttf.py`. MIT,
+  Copyright © 2017 Just van Rossum (`third_party/fonttools/LICENSE`).
 - **stb:** public domain / MIT.
 - **stremio-core:** the library, add-on and player-progress logic in
   `src/core` is ported from [stremio-core](https://github.com/Stremio/stremio-core),

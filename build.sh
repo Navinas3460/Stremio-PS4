@@ -6,7 +6,7 @@
 #   ./build.sh desktop        desktop build (SDL2 + FFmpeg), for development
 #   ./build.sh desktop --dev  same, with developer tools (demo session, scripts)
 #   ./build.sh test           unit tests (no window, network or PS4 needed)
-#   ./build.sh clean          remove build outputs (keeps the FFmpeg build)
+#   ./build.sh clean          remove build outputs (keeps the FFmpeg and HarfBuzz builds)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -21,6 +21,9 @@ ps4)
 		# (Re)build FFmpeg when it's missing or its script changed.
 		if [ ! -f ffmpeg_ps4/install/lib/libavcodec.a ] || [ tools/build_ffmpeg_ps4.sh -nt ffmpeg_ps4/install/lib/libavcodec.a ]; then
 			tools/build_ffmpeg_ps4.sh
+		fi
+		if [ ! -f harfbuzz_ps4/install/lib/libharfbuzz.a ] || [ tools/build_harfbuzz_ps4.sh -nt harfbuzz_ps4/install/lib/libharfbuzz.a ]; then
+			tools/build_harfbuzz_ps4.sh
 		fi
 		make -f Makefile.ps4 -j"$(nproc)"
 		echo "Package: build_ps4/stremio-ps4-$(cat VERSION).pkg"

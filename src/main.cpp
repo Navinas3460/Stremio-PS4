@@ -51,6 +51,16 @@ private:
 
 bool load_fonts(Fonts &f) {
 	auto font = [](const char *file) { return platform::asset_path(std::string("fonts/") + file); };
+	// Scripts Inter lacks (subtitles and titles), tried in this order; the
+	// big CJK font is opened only when a Chinese/Japanese/Korean character
+	// shows up.
+	std::vector<std::string> fallbacks;
+	for (const char *script : { "Arabic", "Hebrew", "Devanagari", "Bengali", "Tamil", "Telugu", "Malayalam", "Kannada",
+				 "Gujarati", "Gurmukhi", "Sinhala", "Thai", "Lao", "Khmer", "Myanmar", "Armenian", "Georgian", "Ethiopic" }) {
+		fallbacks.push_back(platform::asset_path(std::string("fonts/NotoSans") + script + "-SemiBold.ttf"));
+	}
+	fallbacks.push_back(platform::asset_path("fonts/NotoSansCJKsc-Medium.ttf"));
+	Font::set_fallbacks(fallbacks);
 	return f.page_header.load(font("Inter-Bold.ttf"), theme::SIZE_PAGE_HEADER) &&
 			f.section.load(font("Inter-SemiBold.ttf"), theme::SIZE_SECTION_HEADER) &&
 			f.card_title.load(font("Inter-Medium.ttf"), theme::SIZE_CARD_TITLE) &&

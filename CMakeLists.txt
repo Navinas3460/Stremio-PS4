@@ -20,7 +20,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sdl2 glesv2 freetype2 libcurl libavformat libavcodec libswscale libswresample libavutil)
+pkg_check_modules(DEPS REQUIRED IMPORTED_TARGET sdl2 glesv2 freetype2 harfbuzz libcurl libavformat libavcodec libswscale libswresample libavutil)
 
 # The torrent engine (src/torrent), shared by the app and tools/torrent_fetch.
 set(TORRENT_SOURCES
@@ -38,6 +38,8 @@ add_executable(stremio_ps4
     src/platform/platform_desktop.cpp
     src/render/renderer.cpp
     src/render/font.cpp
+    src/render/bidi.cpp
+    src/core/charset.cpp
     src/core/json.cpp
     src/core/models.cpp
     src/core/stremio.cpp
@@ -97,6 +99,8 @@ if(STREMIO_TESTS)
     add_executable(stremio_ps4_tests
         tests/main.cpp
         tests/fakes.cpp
+        tests/test_bidi.cpp
+        tests/test_charset.cpp
         tests/test_json.cpp
         tests/test_models.cpp
         tests/test_nv12.cpp
@@ -112,7 +116,10 @@ if(STREMIO_TESTS)
         src/core/models.cpp
         src/core/stremio.cpp
         src/core/subtitles.cpp
+        src/core/charset.cpp
+        src/render/bidi.cpp
     )
+    target_link_libraries(stremio_ps4_tests PRIVATE PkgConfig::DEPS)
     target_compile_options(stremio_ps4_tests PRIVATE -Wall -Wno-unused-function)
     add_test(NAME unit COMMAND stremio_ps4_tests)
 endif()

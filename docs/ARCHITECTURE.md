@@ -21,7 +21,7 @@ SSE2, because there is no YUV shader.
 |---|---|---|
 | `src/platform/` | `platform_ps4.cpp`: Piglet/EGL, DualShock 4, precompiled shaders, files, log | `platform_desktop.cpp`: SDL2 + GLES2 with GLSL copies of the shaders |
 | `src/render/` | Renderer (rectangles, rounded shapes, images, fades, text) and FreeType glyph atlas | same |
-| `src/core/` | JSON, Stremio models, the `Stremio` facade (session, QR sign-in, library, add-ons, Continue watching, notifications, catalogs, search, player progress rules), subtitle parsing | same |
+| `src/core/` | JSON, Stremio models, the `Stremio` facade (session, QR sign-in, library, add-ons, Continue watching, notifications, catalogs, search, player progress rules), subtitle parsing and encoding conversion | same |
 | `src/net/` | Async HTTP (`http_ps4.cpp`: libSceHttp), image cache, `ByteSource` (what the players read from) and the parallel range reader for HTTP video | `http_curl.cpp`: libcurl |
 | `src/torrent/` | The torrent engine (below): BSD sockets with `SO_NBIO`, DNS through `sceNetResolver` | BSD sockets, `getaddrinfo` |
 | `src/ui/` | Screens: sign-in, Home, Search, Library, Settings, details, player; theme tokens and shared components (docs/DESIGN.md) | same |

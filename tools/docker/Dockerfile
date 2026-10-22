@@ -4,8 +4,8 @@
 #
 # Everything is pinned: Ubuntu 24.04 (LLVM 18, matching OpenOrbis'
 # "llvm-18" toolchain), OpenOrbis v0.5.4 and OpenSSL 1.1 for PkgTool.Core,
-# each checked by sha256. FFmpeg 7.1 is fetched and checked by
-# tools/build_ffmpeg_ps4.sh.
+# each checked by sha256. FFmpeg 7.1 and HarfBuzz are fetched and
+# checked by tools/build_ffmpeg_ps4.sh and tools/build_harfbuzz_ps4.sh.
 FROM ubuntu:24.04
 
 ARG OPENORBIS_VERSION=v0.5.4

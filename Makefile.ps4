@@ -3,7 +3,8 @@
 #   make -f Makefile.ps4          -> build_ps4/stremio-ps4-<version>.pkg
 #   make -f Makefile.ps4 clean
 #
-# Needs OO_PS4_TOOLCHAIN, FFmpeg built by tools/build_ffmpeg_ps4.sh and, for
+# Needs OO_PS4_TOOLCHAIN, FFmpeg and HarfBuzz built by tools/build_ffmpeg_ps4.sh and
+# tools/build_harfbuzz_ps4.sh and, for
 # packaging, OpenSSL 1.1 + DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
 
 # The version lives in ./VERSION (major.minor.patch). The package's APP_VER
@@ -20,8 +21,8 @@ BIN         := $(TOOLCHAIN)/bin/linux
 OUT         := build_ps4
 STAGE       := $(OUT)/pkg
 
-SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cpp src/render/font.cpp \
-               src/core/json.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
+SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cpp src/render/font.cpp src/render/bidi.cpp \
+               src/core/charset.cpp src/core/json.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
                src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp src/net/byte_source.cpp src/net/urls.cpp \
                src/torrent/bencode.cpp src/torrent/dht.cpp src/torrent/magnet.cpp src/torrent/net.cpp src/torrent/sha1.cpp \
                src/torrent/torrent_stream.cpp src/torrent/trackers.cpp \
@@ -33,7 +34,10 @@ OBJS        := $(patsubst src/%.cpp,$(OUT)/obj/%.o,$(SRCS))
 # FFmpeg: built by tools/build_ffmpeg_ps4.sh into ffmpeg_ps4/install.
 FFMPEG_LIBS := -Lffmpeg_ps4/install/lib -lavformat -lavcodec -lswscale -lswresample -lavutil
 
-LIBS        := $(FFMPEG_LIBS) -lc -lm -lclang_rt.builtins-x86_64 -lkernel -lc++ -lSceSysmodule -lSceSystemService -lSceUserService -lScePad -lSceFreeType \
+# HarfBuzz (text shaping): built by tools/build_harfbuzz_ps4.sh into harfbuzz_ps4/install.
+HARFBUZZ_LIBS := -Lharfbuzz_ps4/install/lib -lharfbuzz
+
+LIBS        := $(FFMPEG_LIBS) $(HARFBUZZ_LIBS) -lc -lm -lclang_rt.builtins-x86_64 -lkernel -lc++ -lSceSysmodule -lSceSystemService -lSceUserService -lScePad -lSceFreeType \
                -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut -lSceVideoOut -lSceGnmDriver \
                -lScePigletv2VSH -lScePrecompiledShaders -lSceShellCoreUtil -lSceRtc
 
@@ -42,7 +46,7 @@ AUTHINFO    := "000000000000000000000000001C004000FF0000000000800000000000000000
 
 CXXFLAGS    := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -DSTREMIO_PS4 \
                -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -isystem $(TOOLCHAIN)/include/c++/v1 \
-               -Ithird_party/stb -Iffmpeg_ps4/install/include -DAPP_VERSION='"$(APP_VERSION)"' -Wall -Wno-unused-function
+               -Ithird_party/stb -Iffmpeg_ps4/install/include -Iharfbuzz_ps4/install/include/harfbuzz -DAPP_VERSION='"$(APP_VERSION)"' -Wall -Wno-unused-function
 LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr -L$(TOOLCHAIN)/lib $(LIBS) \
                $(TOOLCHAIN)/lib/crt1.o
 

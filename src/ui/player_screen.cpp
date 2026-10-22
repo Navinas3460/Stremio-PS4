@@ -1,5 +1,6 @@
 #include "player_screen.h"
 
+#include "../core/charset.h"
 #include "../core/languages.h"
 #include "../core/stremio.h"
 #include "../net/http.h"
@@ -171,10 +172,12 @@ void PlayerScreen::choose_subtitle(const SubtitleOption &option, bool remember) 
 	const int index = option.id;
 	if (remember) toast_.show("Loading subtitles\xE2\x80\xA6");
 	std::weak_ptr<int> alive = alive_;
-	http::get(item.url, [this, alive, index](http::Response &res) {
+	http::get(item.url, [this, alive, index, lang = item.lang](http::Response &res) {
 		if (alive.expired() || sub_kind_ != SubtitleOption::ADDON || sub_id_ != index) return;
 		std::vector<SubtitleCue> cues;
-		if (!res.ok() || !parse_subtitles(res.body, cues)) {
+		// Files in legacy encodings (Windows-1256 Arabic, GBK Chinese...)
+		// are decoded by the subtitle's language.
+		if (!res.ok() || !parse_subtitles(to_utf8(res.body, lang), cues)) {
 			platform::log("player: subtitles failed (%s, HTTP %d)", res.error.c_str(), res.status);
 			toast_.show("Couldn't load these subtitles", true);
 			return;

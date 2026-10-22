@@ -27,6 +27,12 @@ jobs:
 
       # A release is named after its tag: v1.0.3 builds stremio-ps4-1.0.3.pkg
       # and shows 1.0.3 in Settings, whatever VERSION says.
+      - name: Cache HarfBuzz
+        uses: actions/cache@v4
+        with:
+          path: harfbuzz_ps4/install
+          key: harfbuzz-ps4-${{ hashFiles('tools/build_harfbuzz_ps4.sh', 'tools/docker/Dockerfile') }}
+
       - name: Version from the tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -61,7 +67,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake g++ pkg-config libsdl2-dev libgles-dev \
-            libfreetype-dev libcurl4-openssl-dev libavformat-dev libavcodec-dev libswscale-dev \
+            libfreetype-dev libharfbuzz-dev libcurl4-openssl-dev libavformat-dev libavcodec-dev libswscale-dev \
             libswresample-dev libavutil-dev
       - name: Build
         run: ./build.sh desktop

@@ -6,7 +6,7 @@ below × 1.15 (`UI_SCALE`), which reads better on a TV.
 
 ## Typography
 
-Font: Inter (`assets/fonts`).
+Font: Inter (`assets/fonts`), with Noto fallbacks for other scripts (Arabic, Hebrew, Indic, Thai, CJK...).
 
 | Role | Base size | Weight |
 |---|---|---|

@@ -30,7 +30,9 @@ void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, fl
 	if (art.valid()) {
 		r.image_cover(art, x, y, w, h);
 	} else {
-		const std::string initial = c.title.substr(0, 1);
+		size_t first = 0; // whole UTF-8 character (e.g. "Ж", "千")
+		if (!c.title.empty()) next_codepoint(c.title, first);
+		const std::string initial = c.title.substr(0, first);
 		const float iw = fonts.page_header.measure(initial);
 		r.text(fonts.page_header, initial, x + (w - iw) / 2, y + h / 2 + S(16), theme::BASE_CONTENT_MUTED);
 	}

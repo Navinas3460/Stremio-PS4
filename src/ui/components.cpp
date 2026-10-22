@@ -103,7 +103,9 @@ void status(Renderer &r, float cx, float cy, const Color &c) {
 
 void avatar(Renderer &r, Font &font, const std::string &name, float x, float y, float size) {
 	r.rounded_rect(x, y, size, size, size / 2, theme::BASE_300);
-	std::string initial = name.empty() ? "?" : name.substr(0, 1);
+	size_t first = 0; // whole UTF-8 character (e.g. "Ж", "千")
+	if (!name.empty()) next_codepoint(name, first);
+	std::string initial = name.empty() ? "?" : name.substr(0, first);
 	if (initial[0] >= 'a' && initial[0] <= 'z') initial[0] = (char)(initial[0] - 'a' + 'A');
 	r.text(font, initial, x + (size - font.measure(initial)) / 2, centred_baseline(font, y + size / 2), theme::BASE_CONTENT);
 }

@@ -46,12 +46,6 @@ the item's progress and push it to the library, as stremio-core's
 
 ## Polish
 
-### Non-Latin subtitles
-
-Inter has no Chinese, Japanese, Korean or Arabic glyphs, so those subtitles
-render blank. Probe whether the app can load the PS4's system fonts and use
-them as a fallback when a glyph is missing.
-
 ### Image cache on disk
 
 Keep downloaded artwork (shrunk, as already done for textures) in the data

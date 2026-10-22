@@ -67,6 +67,9 @@ public:
 
 	int draw_calls() const { return last_draw_calls_; }
 
+	// Draws what's queued. Font calls it before changing its glyph atlas.
+	void flush();
+
 	// Used by Font to draw glyph quads (texture alpha x colour).
 	void mask_quad(GLuint texture, float x, float y, float w, float h, float u0, float v0, float u1, float v1,
 			const Color &c);
@@ -88,7 +91,6 @@ private:
 	bool load(Program &p, const char *fragment);
 	void quad(Kind kind, GLuint texture, const Color &c, float x, float y, float w, float h, float u0, float v0,
 			float u1, float v1);
-	void flush();
 	// Starts a new batch unless the current one matches and has room.
 	void batch(Kind kind, GLuint texture, const Color &c, size_t vertices);
 	void transform_point(float &x, float &y) const;
