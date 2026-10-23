@@ -11,7 +11,7 @@
 # is "MM.mm" as the PS4 expects.
 APP_VERSION := $(shell cat VERSION)
 PKG_VERSION := $(shell awk -F. '{ printf "%02d.%02d", $$1, $$2 }' VERSION)
-TITLE       := Stremio PS4
+TITLE       := Stremio PS4 Enhanced
 TITLE_ID    := STRM00010
 # Kept from the app's earlier name so new packages install over existing ones.
 CONTENT_ID  := IV0000-STRM00010_00-STREMIOTV0000000
@@ -26,7 +26,7 @@ SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cp
                src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp src/net/byte_source.cpp src/net/urls.cpp \
                src/torrent/bencode.cpp src/torrent/dht.cpp src/torrent/magnet.cpp src/torrent/net.cpp src/torrent/sha1.cpp \
                src/torrent/torrent_stream.cpp src/torrent/trackers.cpp \
-               src/ui/home_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \
+               src/ui/home_screen.cpp src/ui/discover_screen.cpp src/ui/addons_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \
                src/ui/card.cpp src/ui/components.cpp src/ui/tab_bar.cpp src/ui/search_screen.cpp src/ui/library_screen.cpp src/ui/settings_screen.cpp \
                src/video/video_avplayer.cpp src/video/video_ffmpeg.cpp src/video/video_player.cpp
 OBJS        := $(patsubst src/%.cpp,$(OUT)/obj/%.o,$(SRCS))
@@ -44,7 +44,7 @@ LIBS        := $(FFMPEG_LIBS) $(HARFBUZZ_LIBS) -lc -lm -lclang_rt.builtins-x86_6
 # Privileges needed for Piglet (same as the OpenOrbis Piglet sample).
 AUTHINFO    := "000000000000000000000000001C004000FF000000000080000000000000000000000000000000000000008000400040000000000000008000000000000000080040FFFF000000F000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
-CXXFLAGS    := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -DSTREMIO_PS4 \
+CXXFLAGS    := --target=x86_64-pc-freebsd12-elf -std=gnu++17 -fPIC -funwind-tables -O2 -DSTREMIO_PS4 \
                -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -isystem $(TOOLCHAIN)/include/c++/v1 \
                -Ithird_party/stb -Iffmpeg_ps4/install/include -Iharfbuzz_ps4/install/include/harfbuzz -DAPP_VERSION='"$(APP_VERSION)"' -Wall -Wno-unused-function
 LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr -L$(TOOLCHAIN)/lib $(LIBS) \
