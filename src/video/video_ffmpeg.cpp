@@ -343,7 +343,7 @@ public:
 	double position() const override { return std::max(0.0, clock()); }
 	double duration() const override { return duration_; }
 	std::string error() const override { return error_; }
-	const Texture &frame() const override { return texture_; }
+	const Texture &frame() const override { return textures_[tex_idx_]; }
 	std::string source_status() const override {
 		threads::Lock lock(mutex_);
 		return reader_ ? reader_->status() : std::string();
@@ -437,14 +437,17 @@ private:
 
 	void upload(const Frame &f) {
 		const double t0 = platform::now();
-		if (texture_.valid() && texture_.width == f.width && texture_.height == f.height) {
-			glBindTexture(GL_TEXTURE_2D, texture_.id);
+		tex_idx_ = (tex_idx_ + 1) % 3;
+		Texture &tex = textures_[tex_idx_];
+		if (tex.valid() && tex.width == f.width && tex.height == f.height) {
+			glBindTexture(GL_TEXTURE_2D, tex.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, f.width, f.height, GL_RGBA, GL_UNSIGNED_BYTE, f.rgba.data());
 		} else {
-			if (texture_.valid()) glDeleteTextures(1, &texture_.id);
-			texture_ = make_texture(f.width, f.height, f.rgba.data());
+			if (tex.valid()) glDeleteTextures(1, &tex.id);
+			tex = make_texture(f.width, f.height, f.rgba.data());
 		}
-		texture_.shown_width = f.shown_width;
+		tex.shown_width = f.shown_width;
+		glFlush();
 		upload_time_ += platform::now() - t0;
 		uploads_++;
 	}
@@ -464,10 +467,13 @@ private:
 			recycle(shown_);
 			pool_.clear();
 		}
-		if (texture_.valid()) {
-			glDeleteTextures(1, &texture_.id);
-			texture_ = Texture();
+		for (Texture &t : textures_) {
+			if (t.valid()) {
+				glDeleteTextures(1, &t.id);
+				t = Texture();
+			}
 		}
+		tex_idx_ = 0;
 		if (sub_texture_.valid()) {
 			glDeleteTextures(1, &sub_texture_.id);
 			sub_texture_ = Texture();
@@ -921,7 +927,8 @@ private:
 	std::atomic<State> state_{ IDLE };
 	std::string error_;
 	std::atomic<bool> want_playing_{ true };
-	Texture texture_;
+	Texture textures_[3];
+	int tex_idx_ = 0;
 	AudioOut audio_;
 	bool audio_ok_ = false;
 
