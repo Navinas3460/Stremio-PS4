@@ -46,9 +46,12 @@ namespace {
 
 const size_t THREAD_STACK = 1024 * 1024;
 // RGBA frame buffers live in direct memory (the libc heap size is unknown
-// on PS4 and the frames are big). Larger videos are refused.
-const int MAX_FRAME_W = 1920, MAX_FRAME_H = 1088;
-const size_t FRAME_BYTES = (size_t)MAX_FRAME_W * MAX_FRAME_H * 4;
+// on PS4 and the frames are big). When PS4 Pro 4K mode is active, buffers
+// accommodate up to 3840x2160 native frames.
+const int BASE_MAX_FRAME_W = 1920, BASE_MAX_FRAME_H = 1088;
+const int PRO_MAX_FRAME_W = 3840, PRO_MAX_FRAME_H = 2160;
+const size_t BASE_FRAME_BYTES = (size_t)BASE_MAX_FRAME_W * BASE_MAX_FRAME_H * 4;
+const size_t PRO_FRAME_BYTES = (size_t)PRO_MAX_FRAME_W * PRO_MAX_FRAME_H * 4;
 const size_t IO_STACK = 1024 * 1024;
 const uint32_t AUDIO_GRAIN = 1024;       // frames per sceAudioOutOutput
 const double OPEN_TIMEOUT = 45.0;        // seconds without a first PLAY event
@@ -336,8 +339,14 @@ public:
 			fail(reason.empty() ? "This video can't be played (" + hex(rc) + ")" : reason);
 			return;
 		}
+		is_pro_4k_ = VideoPlayer::pro_4k_selected();
+		max_w_ = is_pro_4k_ ? PRO_MAX_FRAME_W : BASE_MAX_FRAME_W;
+		max_h_ = is_pro_4k_ ? PRO_MAX_FRAME_H : BASE_MAX_FRAME_H;
+		frame_bytes_ = is_pro_4k_ ? PRO_FRAME_BYTES : BASE_FRAME_BYTES;
+		platform::log("avplayer: frame buffers -> max %dx%d (%zu MB, PS4 Pro 4K: %s)",
+				max_w_, max_h_, (frame_bytes_ * 3) / (1024 * 1024), is_pro_4k_ ? "ON" : "OFF");
 		for (int i = 0; i < 3; i++) {
-			if (!buffers_[i]) buffers_[i] = (uint8_t *)av_alloc_texture(nullptr, 0x10000, (uint32_t)FRAME_BYTES);
+			if (!buffers_[i]) buffers_[i] = (uint8_t *)av_alloc_texture(nullptr, 0x10000, (uint32_t)frame_bytes_);
 			if (!buffers_[i]) {
 				fail("Not enough memory for video frames");
 				return;
@@ -408,7 +417,7 @@ public:
 	double duration() const override { return duration_; }
 	std::string error() const override { return error_; }
 	std::string source_status() const override { return stream_ ? stream_->reader->status() : std::string(); }
-	const Texture &frame() const override { return texture_; }
+	const Texture &frame() const override { return textures_[tex_idx_]; }
 
 private:
 	void fail(const std::string &message) {
@@ -501,22 +510,27 @@ private:
 	}
 
 	void upload_ready_frame() {
-		int w = 0, h = 0;
+		int tw = 0, sw = 0, h = 0;
 		{
 			threads::Lock lock(frame_mutex_);
 			if (!frame_ready_) return;
 			frame_ready_ = false;
 			std::swap(front_, ready_);
-			w = ready_w_;
+			tw = ready_tw_;
+			sw = ready_w_;
 			h = ready_h_;
 		}
-		if (texture_.valid() && texture_.width == w && texture_.height == h) {
-			glBindTexture(GL_TEXTURE_2D, texture_.id);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffers_[front_]);
+		tex_idx_ = (tex_idx_ + 1) % 3;
+		Texture &tex = textures_[tex_idx_];
+		if (tex.valid() && tex.width == tw && tex.height == h) {
+			glBindTexture(GL_TEXTURE_2D, tex.id);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tw, h, GL_RGBA, GL_UNSIGNED_BYTE, buffers_[front_]);
 		} else {
-			if (texture_.valid()) glDeleteTextures(1, &texture_.id);
-			texture_ = make_texture(w, h, buffers_[front_]);
+			if (tex.valid()) glDeleteTextures(1, &tex.id);
+			tex = make_texture(tw, h, buffers_[front_]);
 		}
+		tex.shown_width = sw;
+		glFlush();
 	}
 
 	static void *audio_entry(void *p) {
@@ -565,15 +579,29 @@ private:
 		const uint32_t pitch = v.pitch ? v.pitch : align_up(v.width, 64);
 		const int w = (int)(v.width - v.cropLeftOffset - v.cropRightOffset) & ~1;
 		const int h = (int)(v.height - v.cropTopOffset - v.cropBottomOffset) & ~1;
-		if (++frames == 1) platform::log("avplayer: video %ux%u", v.width, v.height);
-		if (w <= 0 || h <= 0 || w > MAX_FRAME_W || h > MAX_FRAME_H) return true;
+		if (++frames == 1) platform::log("avplayer: video stream %ux%u (4K mode: %s)", v.width, v.height, is_pro_4k_ ? "active" : "disabled");
+		if (w <= 0 || h <= 0 || w > max_w_ || h > max_h_) {
+			if (w > max_w_ || h > max_h_) {
+				platform::log("avplayer: frame %dx%d exceeds max %dx%d (enable 4K in Settings)", w, h, max_w_, max_h_);
+			}
+			return true;
+		}
+		const int tw = (w + 31) & ~31;
 		const uint8_t *y_plane = (const uint8_t *)vf.pData;
 		const uint8_t *uv_plane = y_plane + (size_t)pitch * v.height;
 		y_plane += (size_t)v.cropTopOffset * pitch + (v.cropLeftOffset & ~1u);
 		uv_plane += (size_t)(v.cropTopOffset / 2) * pitch + (v.cropLeftOffset & ~1u);
-		nv12::nv12_to_rgba(y_plane, uv_plane, pitch, w, h, v.height >= 720, v.videoFullRangeFlag != 0, buffers_[back]);
+		nv12::convert_rows(nv12::Nv12{ y_plane, uv_plane, pitch, pitch }, w, 0, h, v.height >= 720, v.videoFullRangeFlag != 0,
+				buffers_[back], tw);
+		if (tw > w) {
+			for (int y = 0; y < h; y++) {
+				uint32_t *row = (uint32_t *)(buffers_[back] + (size_t)y * tw * 4);
+				std::fill(row + w, row + tw, row[w - 1]);
+			}
+		}
 		threads::Lock lock(frame_mutex_);
 		std::swap(ready_, back);
+		ready_tw_ = tw;
 		ready_w_ = w;
 		ready_h_ = h;
 		frame_ready_ = true;
@@ -625,10 +653,13 @@ private:
 			delete stream_;
 			stream_ = nullptr;
 		}
-		if (texture_.valid()) {
-			glDeleteTextures(1, &texture_.id);
-			texture_ = Texture();
+		for (Texture &t : textures_) {
+			if (t.valid()) {
+				glDeleteTextures(1, &t.id);
+				t = Texture();
+			}
 		}
+		tex_idx_ = 0;
 		event_read_ = event_write_.load();
 		if (threads_running_ == 0) {
 			for (uint8_t *&b : buffers_) {
@@ -663,11 +694,16 @@ private:
 	uint32_t event_read_ = 0;
 
 	threads::Mutex frame_mutex_;
+	bool is_pro_4k_ = false;
+	int max_w_ = BASE_MAX_FRAME_W;
+	int max_h_ = BASE_MAX_FRAME_H;
+	size_t frame_bytes_ = BASE_FRAME_BYTES;
 	uint8_t *buffers_[3] = { nullptr, nullptr, nullptr };
 	int ready_ = 0, front_ = 1; // indices; the video thread owns the third
-	int ready_w_ = 0, ready_h_ = 0;
+	int ready_tw_ = 0, ready_w_ = 0, ready_h_ = 0;
 	bool frame_ready_ = false;
-	Texture texture_;
+	Texture textures_[3];
+	int tex_idx_ = 0;
 
 };
 

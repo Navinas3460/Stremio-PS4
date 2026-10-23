@@ -1,6 +1,8 @@
 #include "tab_bar.h"
 
 #include "../platform/platform.h"
+#include "addons_screen.h"
+#include "discover_screen.h"
 #include "home_screen.h"
 #include "library_screen.h"
 #include "search_screen.h"
@@ -13,15 +15,17 @@ namespace tabs {
 namespace {
 using theme::S;
 const float W = 1920, H = 1080;
-const char *LABELS[COUNT] = { "Home", "Search", "Library", "Settings" };
+const char *LABELS[COUNT] = { "Home", "Discover", "Search", "Library", "Addons", "Settings" };
 } // namespace
 
 void open(Tab tab, Fonts &fonts, Navigator &nav) {
 	Screen *s = nullptr;
 	switch (tab) {
 		case HOME: s = new HomeScreen(fonts, nav); break;
+		case DISCOVER: s = new DiscoverScreen(fonts, nav); break;
 		case SEARCH: s = new SearchScreen(fonts, nav); break;
 		case LIBRARY: s = new LibraryScreen(fonts, nav); break;
+		case ADDONS: s = new AddonsScreen(fonts, nav); break;
 		default: s = new SettingsScreen(fonts, nav); break;
 	}
 	nav.replace_root(std::unique_ptr<Screen>(s));

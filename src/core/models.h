@@ -82,6 +82,7 @@ struct ExtraProp {
 	std::string name;
 	bool is_required = false;
 	int options_limit = 1;
+	std::vector<std::string> options;
 };
 
 struct Catalog {
@@ -94,7 +95,7 @@ struct Catalog {
 
 // stremio-core Descriptor + the parts of Manifest we use.
 struct Addon {
-	std::string transport_url, id, name;
+	std::string transport_url, id, name, version, description, logo;
 	std::vector<std::string> types;
 	bool has_id_prefixes = false;
 	std::vector<std::string> id_prefixes;
@@ -102,6 +103,7 @@ struct Addon {
 	std::vector<Catalog> catalogs;
 
 	static Addon from_json(const Json &descriptor);
+	std::vector<std::string> resource_names() const;
 	bool catalog_resource_supports(const std::string &item_id, const std::string &item_type) const;
 	bool manifest_supports(const std::string &item_id, const std::string &item_type) const;
 	bool is_resource_supported(const std::string &resource, const std::string &item_type, const std::string &item_id) const;

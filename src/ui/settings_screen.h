@@ -1,4 +1,4 @@
-// Settings tab: account (sign out), video player choice, build info.
+// Settings tab: account (sign out), UI scale slider, color scheme, video player choice, build info.
 #pragma once
 
 #include "screen.h"
@@ -16,11 +16,16 @@ public:
 private:
 	struct Item {
 		std::string label, value;
-		bool danger = false; // daisyUI btn-error look (sign-out confirmation)
+		bool danger = false;   // daisyUI btn-error look (sign-out confirmation)
+		bool slider = false;   // draws a progress slider bar alongside the value
+		bool swatches = false; // draws color scheme preview swatches alongside the value
+		float slider_progress = 0;
 		float focus = 0;
 	};
 	void refresh_items();
 	void activate();
+	void step_scale(int delta_pct);
+	void step_scheme(int delta);
 
 	Fonts &fonts_;
 	Navigator &navigator_;
@@ -30,4 +35,5 @@ private:
 	bool on_bar_ = false;
 	float sign_out_armed_ = 0; // seconds left to confirm sign-out
 	bool avplayer_ = false;
+	bool pro_4k_ = false;
 };

@@ -33,6 +33,10 @@ public:
 	// of FFmpeg. Stored as `backend=avplayer` in <data dir>/player.cfg.
 	static bool hardware_selected();
 	static void select_hardware(bool hardware);
+
+	// PS4 Pro 4K video playback mode (stored as `pro_4k=1` in <data dir>/player.cfg).
+	static bool pro_4k_selected();
+	static void select_pro_4k(bool enabled);
 	virtual ~VideoPlayer() = default;
 
 	// `headers`: extra HTTP request headers ("Name: value").

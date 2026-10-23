@@ -38,7 +38,8 @@ bool g_system_service = false;
 namespace {
 
 const char *LOG_PATH = "/data/stremio_ps4.log";
-const double FRAME_SECONDS = 1.0 / 60.0;
+// Standard HDMI 1080p60 scanout period (59.94 Hz = 1001 / 60000 s).
+const double FRAME_SECONDS = 1001.0 / 60000.0;
 
 FILE *g_log = nullptr;
 EGLDisplay g_display = EGL_NO_DISPLAY;
@@ -46,7 +47,7 @@ EGLSurface g_surface = EGL_NO_SURFACE;
 EGLContext g_context = EGL_NO_CONTEXT;
 int g_width = 1920, g_height = 1080;
 int g_pad = -1;
-double g_last_present = 0.0;
+double g_next_present = 0.0;
 
 // Table exported by libScePrecompiledShaders (layout from the OpenOrbis
 // Piglet sample).
@@ -99,11 +100,11 @@ bool init_gpu() {
 	cfg.systemSharedMemorySize = 128 * 1024 * 1024;
 	cfg.videoSharedMemorySize = 256 * 1024 * 1024;
 	cfg.maxMappedFlexibleMemory = 170 * 1024 * 1024;
-	cfg.drawCommandBufferSize = 1 * 1024 * 1024;
-	cfg.lcueResourceBufferSize = 1 * 1024 * 1024;
+	cfg.drawCommandBufferSize = 4 * 1024 * 1024;
+	cfg.lcueResourceBufferSize = 2 * 1024 * 1024;
 	cfg.dbgPosCmd_0x40 = g_width;
 	cfg.dbgPosCmd_0x44 = g_height;
-	cfg.unk_0x5C = 2;
+	cfg.unk_0x5C = 3;
 	if (!scePigletSetConfigurationVSH(&cfg)) {
 		platform::log("scePigletSetConfigurationVSH failed");
 		return false;
@@ -173,7 +174,7 @@ bool init(int width, int height) {
 	if (!init_gpu()) {
 		return false;
 	}
-	g_last_present = now();
+	g_next_present = now() + FRAME_SECONDS;
 	return true;
 }
 
@@ -244,14 +245,21 @@ void gnm_suspend_check() {
 }
 
 void present() {
+	// Wait for the GPU to finish rendering into the backbuffer before flipping,
+	// and pace against a phase-locked 59.94 Hz target before eglSwapBuffers so
+	// texture upload time variations don't shift the flip into active scanout.
+	glFinish();
+	const double t = now();
+	if (t < g_next_present) {
+		sceKernelUsleep((uint32_t)((g_next_present - t) * 1e6));
+	}
 	eglSwapBuffers(g_display, g_surface);
 	gnm_suspend_check();
-	// Vsync is off (see init_gpu), so cap at 60 fps ourselves.
-	const double elapsed = now() - g_last_present;
-	if (elapsed < FRAME_SECONDS) {
-		sceKernelUsleep((uint32_t)((FRAME_SECONDS - elapsed) * 1e6));
+	const double after = now();
+	g_next_present += FRAME_SECONDS;
+	if (g_next_present < after) {
+		g_next_present = after + FRAME_SECONDS;
 	}
-	g_last_present = now();
 }
 
 double now() {
