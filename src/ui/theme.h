@@ -8,38 +8,66 @@
 namespace theme {
 
 // Base: the backdrop and surfaces one elevation step above it.
-inline const Color BASE_100 = rgb(0x051923); // Ink Black: backdrop canvas
-inline const Color BASE_200 = rgb(0x0C2A38); // cards, list rows, keys, fields
-inline const Color BASE_300 = rgb(0x163D50); // containers on BASE_200, kbd caps
-inline const Color BASE_CONTENT = rgb(0xEEF1F4);
-inline const Color BASE_CONTENT_MUTED = rgb(0xEEF1F4, 0.6f);
+// Updated dynamically when the user switches color schemes in Settings.
+extern Color BASE_100;           // backdrop canvas
+extern Color BASE_200;           // cards, list rows, keys, fields
+extern Color BASE_300;           // containers on BASE_200, kbd caps
+extern Color BASE_CONTENT;
+extern Color BASE_CONTENT_MUTED;
 
-inline const Color PRIMARY = rgb(0x0070D1);   // Sapphire Sky: focus, active tab, progress
-inline const Color PRIMARY_CONTENT = rgb(0xFFFFFF);
-inline const Color SECONDARY = rgb(0x685CEE); // Majorelle Blue: focus on an active item
-inline const Color ACCENT = rgb(0x84DD63);    // Radioactive Grass: badges, "in use", toasts
-inline const Color ACCENT_CONTENT = BASE_100;
-inline const Color WARNING = rgb(0xF2C14E);
-inline const Color ERROR = rgb(0xFF8A80);
+extern Color PRIMARY;            // focus, active tab, progress
+extern Color PRIMARY_CONTENT;
+extern Color SECONDARY;          // focus on an active item
+extern Color ACCENT;             // badges, "in use", toasts
+extern Color ACCENT_CONTENT;
+extern Color WARNING;
+extern Color ERROR;
 
-// Everything is 15% larger than the base sizes in docs/DESIGN.md (reads better
-// on a TV).
-constexpr float UI_SCALE = 1.15f;
-constexpr float S(float v) { return v * UI_SCALE; }
+int color_scheme_count();
+int color_scheme_index();
+const char *color_scheme_name(int index);
+void set_color_scheme(int index, bool save = true);
 
-// Typography (1920x1080 canvas): docs/DESIGN.md sizes x UI_SCALE
-constexpr int SIZE_PAGE_HEADER = (int)(48 * UI_SCALE);    // Bold
-constexpr int SIZE_SECTION_HEADER = (int)(32 * UI_SCALE); // Semi-Bold
-constexpr int SIZE_CARD_TITLE = (int)(24 * UI_SCALE);     // Medium
-constexpr int SIZE_BODY = (int)(20 * UI_SCALE);           // Regular
-constexpr int SIZE_SMALL = (int)(16 * UI_SCALE);          // Regular: kbd hints, details
-constexpr int SIZE_SUBTITLE = (int)(42 * UI_SCALE);       // Semi-Bold: video subtitles
+// Everything is 15% larger than the base sizes in docs/DESIGN.md by default
+// (reads better on a TV), and can be scaled from 80% to 125% in Settings.
+constexpr float DEFAULT_UI_SCALE = 1.15f;
+constexpr int UI_SCALE_MIN_PCT = 80;
+constexpr int UI_SCALE_MAX_PCT = 125;
+constexpr int UI_SCALE_STEP_PCT = 5;
+
+float ui_scale();
+int ui_scale_percent();
+void set_ui_scale_percent(int pct, bool save = true);
+void load_ui_scale();
+
+inline float S(float v) { return v * ui_scale(); }
+
+struct ScaledFloat {
+	float base;
+	operator float() const { return base * ui_scale(); }
+};
+
+struct ScaledInt {
+	int base;
+	operator int() const { return (int)(base * ui_scale() + 0.5f); }
+	float operator*(float k) const { return (int)(*this) * k; }
+};
+
+inline const ScaledFloat UI_SCALE{ 1.0f };
+
+// Typography (1920x1080 canvas): docs/DESIGN.md sizes x ui_scale()
+inline const ScaledInt SIZE_PAGE_HEADER{ 48 };    // Bold
+inline const ScaledInt SIZE_SECTION_HEADER{ 32 }; // Semi-Bold
+inline const ScaledInt SIZE_CARD_TITLE{ 24 };     // Medium
+inline const ScaledInt SIZE_BODY{ 20 };           // Regular
+inline const ScaledInt SIZE_SMALL{ 16 };          // Regular: kbd hints, details
+inline const ScaledInt SIZE_SUBTITLE{ 42 };       // Semi-Bold: video subtitles
 
 // Shape (daisyUI --radius-field / --radius-box / --radius-selector)
-constexpr float RADIUS_FIELD = S(12);    // cards, buttons, keys, list rows
-constexpr float RADIUS_BOX = S(24);      // large panels
-constexpr float RADIUS_SELECTOR = S(99); // pills: tabs, badges (clamped to half the height)
-constexpr float FOCUS_RING = S(4);
+inline const ScaledFloat RADIUS_FIELD{ 12.0f };    // cards, buttons, keys, list rows
+inline const ScaledFloat RADIUS_BOX{ 24.0f };      // large panels
+inline const ScaledFloat RADIUS_SELECTOR{ 99.0f }; // pills: tabs, badges (clamped to half the height)
+inline const ScaledFloat FOCUS_RING{ 4.0f };
 
 // Focus motion
 constexpr float FOCUS_SCALE = 1.1f;
