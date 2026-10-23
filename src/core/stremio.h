@@ -21,6 +21,17 @@ struct BoardRow {
 	std::string error;
 };
 
+// A browsable add-on catalog for the Discover tab (type, catalog, optional
+// genre/year filter options, and whether `skip` pagination is supported).
+struct DiscoverCatalog {
+	std::string addon_id, addon_name;
+	std::string type, id, name;
+	std::string filter_name;                 // e.g. "genre", or "" if none
+	bool filter_required = false;            // true when "All" isn't valid (e.g. Cinemeta's "Year")
+	std::vector<std::string> filter_options; // genre / year choices
+	bool supports_skip = false;
+};
+
 struct LinkLogin {
 	bool active = false;
 	std::string code, link, qr_url;
@@ -56,6 +67,15 @@ public:
 	int notification_count(const std::string &meta_id) const;
 
 	const std::vector<BoardRow> &board() const { return board_; }
+
+	// Discover (stremio-core CatalogsWithExtra): browse catalogs by type and
+	// optional filter (genre, year...) with `skip` pagination.
+	bool addons_loaded() const { return addons_loaded_; }
+	const std::vector<Addon> &addons() const { return addons_; }
+	std::vector<std::string> discover_types() const;
+	std::vector<DiscoverCatalog> discover_catalogs(const std::string &type) const;
+	using DiscoverCallback = std::function<void(bool ok, std::vector<MetaItem> &items, const std::string &error)>;
+	void fetch_discover(const DiscoverCatalog &cat, const std::string &filter_value, int skip, DiscoverCallback cb);
 
 	// Search (stremio-core CatalogsWithExtra with the "search" extra): one row
 	// per add-on catalog that supports searching. "" clears the results.
@@ -103,7 +123,7 @@ public:
 	void update(double dt);
 
 	// Bumped whenever the corresponding state changes.
-	int auth_rev = 0, library_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0;
+	int auth_rev = 0, library_rev = 0, addons_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0;
 
 private:
 	using ApiCallback = std::function<void(bool ok, const Json &result, const std::string &error)>;

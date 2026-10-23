@@ -313,6 +313,9 @@ Addon Addon::from_json(const Json &d) {
 	const Json &m = d["manifest"];
 	a.id = str(m["id"]);
 	a.name = m.has("name") ? str(m["name"]) : a.id;
+	a.version = str(m["version"]);
+	a.description = str(m["description"]);
+	a.logo = str(m["logo"]);
 	a.types = strings(m["types"]);
 	a.has_id_prefixes = m["idPrefixes"].is_array();
 	a.id_prefixes = strings(m["idPrefixes"]);
@@ -325,17 +328,33 @@ Addon Addon::from_json(const Json &d) {
 		if (c["extra"].is_array()) { // full form
 			for (const Json &e : c["extra"].elements()) {
 				if (!e["name"].is_string()) continue;
-				cat.extra.push_back({ e["name"].as_string(), e["isRequired"].as_bool(), (int)e["optionsLimit"].as_int(1) });
+				std::vector<std::string> opts = strings(e["options"]);
+				if (e["name"].as_string() == "genre" && opts.empty()) opts = strings(c["genres"]);
+				cat.extra.push_back({ e["name"].as_string(), e["isRequired"].as_bool(), (int)e["optionsLimit"].as_int(1),
+						std::move(opts) });
 			}
 		} else { // legacy short form
 			const std::vector<std::string> required = strings(c["extraRequired"]);
 			for (const std::string &n : strings(c["extraSupported"])) {
-				cat.extra.push_back({ n, contains(required, n), 1 });
+				std::vector<std::string> opts = n == "genre" ? strings(c["genres"]) : std::vector<std::string>();
+				cat.extra.push_back({ n, contains(required, n), 1, std::move(opts) });
 			}
 		}
 		a.catalogs.push_back(cat);
 	}
 	return a;
+}
+
+std::vector<std::string> Addon::resource_names() const {
+	std::vector<std::string> out;
+	if (!catalogs.empty()) out.push_back("catalog");
+	for (const Json &r : resources.elements()) {
+		std::string name;
+		if (r.is_string()) name = r.as_string();
+		else if (r.is_object()) name = str(r["name"]);
+		if (!name.empty() && !contains(out, name)) out.push_back(name);
+	}
+	return out;
 }
 
 bool Addon::catalog_resource_supports(const std::string &item_id, const std::string &item_type) const {

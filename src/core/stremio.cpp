@@ -257,6 +257,7 @@ void Stremio::refresh() {
 		addons_.clear();
 		add_extra_addons({ "https://v3-cinemeta.strem.io/manifest.json" }, [this] {
 			addons_loaded_ = true;
+			addons_rev++;
 			after_sync();
 		});
 		return;
@@ -320,6 +321,7 @@ void Stremio::sync_addons() {
 		auto done = [this, gen] {
 			if (gen != gen_) return;
 			addons_loaded_ = true;
+			addons_rev++;
 			after_sync();
 		};
 #if defined(STREMIO_DEV)
@@ -513,6 +515,118 @@ void Stremio::fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bo
 			rev++;
 		});
 	}
+}
+
+// --- Discover (models/catalog_with_filters.rs) ------------------------------------------
+
+namespace {
+
+// A catalog belongs in Discover when it either needs no extras, or its only
+// required extra is a filter with selectable options (e.g. Cinemeta's "Year"
+// catalog, where `genre` is required and holds the list of years).
+bool is_discover_catalog(const Addon &addon, const Catalog &cat, DiscoverCatalog &out) {
+	if (cat.type.empty() || addon.resource_url("catalog", cat.type, cat.id).empty()) return false;
+	std::string filter_name;
+	bool filter_required = false;
+	std::vector<std::string> filter_options;
+	for (const ExtraProp &e : cat.extra) {
+		if (e.name == "search" || e.name == "lastVideosIds" || e.name == "calendarVideosIds") {
+			if (e.is_required) return false;
+			continue;
+		}
+		if (e.name == "skip") {
+			if (e.is_required) return false;
+			continue;
+		}
+		if (!e.options.empty() && filter_name.empty()) {
+			filter_name = e.name;
+			filter_required = e.is_required;
+			filter_options = e.options;
+		} else if (e.is_required) {
+			return false;
+		}
+	}
+	out = DiscoverCatalog();
+	out.addon_id = addon.id;
+	out.addon_name = addon.name;
+	out.type = cat.type;
+	out.id = cat.id;
+	out.name = cat.name.empty() ? (addon.name.empty() ? cat.id : addon.name) : cat.name;
+	out.filter_name = filter_name;
+	out.filter_required = filter_required;
+	out.filter_options = std::move(filter_options);
+	out.supports_skip = cat.extra_prop("skip") != nullptr;
+	return true;
+}
+
+} // namespace
+
+std::vector<std::string> Stremio::discover_types() const {
+	std::vector<std::string> types;
+	for (const Addon &addon : addons_) {
+		for (const Catalog &cat : addon.catalogs) {
+			DiscoverCatalog dc;
+			if (!is_discover_catalog(addon, cat, dc)) continue;
+			if (std::find(types.begin(), types.end(), dc.type) == types.end()) types.push_back(dc.type);
+		}
+	}
+	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
+	std::stable_sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
+		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
+	});
+	return types;
+}
+
+std::vector<DiscoverCatalog> Stremio::discover_catalogs(const std::string &type) const {
+	std::vector<DiscoverCatalog> out;
+	for (const Addon &addon : addons_) {
+		for (const Catalog &cat : addon.catalogs) {
+			if (!type.empty() && cat.type != type) continue;
+			DiscoverCatalog dc;
+			if (is_discover_catalog(addon, cat, dc)) out.push_back(std::move(dc));
+		}
+	}
+	return out;
+}
+
+void Stremio::fetch_discover(const DiscoverCatalog &cat, const std::string &filter_value, int skip, DiscoverCallback cb) {
+	const Addon *matched = nullptr;
+	for (const Addon &addon : addons_) {
+		if (addon.id == cat.addon_id && !addon.resource_url("catalog", cat.type, cat.id).empty()) {
+			matched = &addon;
+			break;
+		}
+	}
+	if (!matched) {
+		std::vector<MetaItem> empty;
+		cb(false, empty, "Add-on not available");
+		return;
+	}
+	std::vector<std::pair<std::string, std::string>> extra;
+	if (!cat.filter_name.empty() && !filter_value.empty()) {
+		extra.push_back({ cat.filter_name, filter_value });
+	} else if (cat.filter_required && !cat.filter_options.empty()) {
+		extra.push_back({ cat.filter_name, cat.filter_options[0] });
+	}
+	if (skip > 0 && cat.supports_skip) {
+		extra.push_back({ "skip", std::to_string(skip) });
+	}
+	const std::string url = matched->resource_url("catalog", cat.type, cat.id, extra);
+	if (url.empty()) {
+		std::vector<MetaItem> empty;
+		cb(false, empty, "Unsupported catalog URL");
+		return;
+	}
+	const int gen = gen_;
+	fetch_json(url, [this, gen, cb](bool ok, const Json &json, const std::string &error) {
+		if (gen != gen_) return;
+		std::vector<MetaItem> metas;
+		if (ok && metas_from_response(json, metas)) {
+			cb(true, metas, "");
+		} else {
+			cb(false, metas, ok ? "unexpected catalog response" : error);
+		}
+	});
 }
 
 // --- Search (models/catalogs_with_extra.rs) ---------------------------------------------
