@@ -30,7 +30,8 @@ itself.
     and more. Decoding is done in software with FFmpeg, and it handles
     1080p.
   - Subtitles embedded in the video (text and Blu-ray/DVD image subtitles)
-    or from subtitle add-ons such as OpenSubtitles.
+    or from subtitle add-ons such as OpenSubtitles, grouped into one tab
+    per language.
   - Audio track selection.
   - Remembers your subtitle and audio languages.
 - **Synced with your account:** watch progress is saved to your Stremio
@@ -59,7 +60,7 @@ itself.
 | D-pad | Move |
 | × | Select / play-pause |
 | ○ | Back |
-| L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter |
+| L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter; in Audio & subtitles, the subtitle language |
 | ◀ ▶ (in the player) | Seek 10 s (presses add up) |
 | ▲ (in the player) | Audio & subtitles |
 

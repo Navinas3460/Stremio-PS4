@@ -1,7 +1,8 @@
 // Full-screen video player. Controls: Cross play/pause, Left/Right seek 10 s
-// (presses add up), Up opens Audio & subtitles, Down shows the controls,
-// Circle back. Watch progress is reported to Stremio (stremio-core's player
-// rules) so it resumes everywhere.
+// (presses add up), Up opens Audio & subtitles (L1 / R1 there switch the
+// subtitle language tab), Down shows the controls, Circle back. Watch
+// progress is reported to Stremio (stremio-core's player rules) so it
+// resumes everywhere.
 //
 // Subtitles come from the video itself (embedded tracks, drawn by the
 // backend's cues) or from subtitle add-ons (SRT/VTT, parsed here). The
@@ -39,6 +40,12 @@ private:
 		std::string lang;     // ISO code
 		std::string label, detail;
 	};
+	// A language tab above the subtitles column (L1 / R1): the column lists
+	// "Off" and that language's subtitles only.
+	struct LanguageTab {
+		std::string name, label; // "Arabic", "Arabic (3)"
+		float x = 0, w = 0;      // position in the scrolling row
+	};
 	struct Column {
 		int selected = 0;
 		float scroll = 0;
@@ -49,6 +56,8 @@ private:
 	void show_overlay();
 
 	void rebuild_subtitle_options();
+	void show_language_tab(int tab);
+	void open_menu();
 	void choose_subtitle(const SubtitleOption &option, bool remember);
 	void choose_audio(int track, bool remember);
 	void auto_select();
@@ -73,6 +82,10 @@ private:
 	// Tracks and subtitles.
 	std::vector<SubtitleItem> addon_subs_;
 	std::vector<SubtitleOption> sub_options_;
+	std::vector<LanguageTab> sub_tabs_;
+	int sub_tab_ = 0;
+	int sub_tabs_first_ = 0;    // first tab shown in the row
+	std::vector<int> sub_rows_; // sub_options_ listed in the current tab
 	std::vector<VideoPlayer::Track> audio_tracks_;
 	SubtitleOption::Kind sub_kind_ = SubtitleOption::OFF;
 	int sub_id_ = -1;                 // embedded track id or add-on index

@@ -29,6 +29,11 @@ const float COL_SUB_X = PANEL_X + S(48), COL_SUB_W = S(470);
 const float COL_AUDIO_X = COL_SUB_X + COL_SUB_W + S(36), COL_AUDIO_W = W - S(48) - (COL_SUB_X + COL_SUB_W + S(36));
 const float LIST_TOP = S(170), ROW_H = S(70), ROW_GAP = S(8);
 const float LIST_BOTTOM = H - S(110);
+// Language tabs in a box over the subtitles column (like the tab bar's
+// daisyUI "tabs-box"); the column starts below it.
+const float LANG_TAB_H = S(44), LANG_TAB_GAP = S(6), LANG_BOX_PAD = S(6);
+const float LANG_BOX_H = LANG_TAB_H + 2 * LANG_BOX_PAD, LANG_TABS_W = COL_SUB_W - 2 * LANG_BOX_PAD;
+const float SUB_LIST_TOP = LIST_TOP + LANG_BOX_H + S(16);
 
 const char *PREF_SUB = "subtitle_language.txt";
 const char *PREF_AUDIO = "audio_language.txt";
@@ -59,6 +64,14 @@ void write_pref(const char *name, const std::string &value) {
 bool same_language(const std::string &a, const std::string &b) {
 	if (a.empty() || b.empty()) return false;
 	return language_name(a) == language_name(b);
+}
+
+// The language tab a subtitle is listed under: unrecognised and untagged
+// ones go under "Other".
+const char *OTHER_TAB = "Other";
+std::string tab_name(const std::string &lang) {
+	const char *name = find_language(lang);
+	return name && std::string(name) != "Unknown" ? name : OTHER_TAB;
 }
 
 } // namespace
@@ -146,13 +159,88 @@ void PlayerScreen::rebuild_subtitle_options() {
 		o.kind = SubtitleOption::ADDON;
 		o.id = i;
 		o.lang = s.lang;
-		const std::string name = language_name(s.lang);
+		const std::string name = s.lang.empty() ? "Unknown" : language_name(s.lang);
 		o.label = name + " " + std::to_string(++count[name]);
 		o.detail = s.addon_name + (s.release.empty() ? "" : " \xC2\xB7 " + s.release);
 		options.push_back(o);
 	}
+	// Add-on subtitles can arrive while the panel is open: keep its tab and
+	// selected row.
+	SubtitleOption selected;
+	if (columns_[0].selected < (int)sub_rows_.size()) selected = sub_options_[sub_rows_[columns_[0].selected]];
+	const std::string open_tab = menu_open_ && sub_tab_ < (int)sub_tabs_.size() ? sub_tabs_[sub_tab_].name : "";
 	sub_options_.swap(options);
-	columns_[0].selected = std::min(columns_[0].selected, (int)sub_options_.size() - 1);
+
+	// One tab per language, in the list's order.
+	std::map<std::string, int> per_language;
+	for (const SubtitleOption &o : sub_options_) {
+		if (o.kind != SubtitleOption::OFF) per_language[tab_name(o.lang)]++;
+	}
+	const std::string preferred = pref_sub_lang_.empty() ? "" : language_name(pref_sub_lang_);
+	auto group = [&](const LanguageTab &t) {
+		return t.name == OTHER_TAB ? 3 : t.name == preferred ? 0 : t.name == "English" ? 1 : 2;
+	};
+	std::vector<LanguageTab> tabs;
+	for (const auto &[name, n] : per_language) tabs.push_back({ name, name + " (" + std::to_string(n) + ")" });
+	std::stable_sort(tabs.begin(), tabs.end(), [&](const LanguageTab &a, const LanguageTab &b) { return group(a) < group(b); });
+	float x = 0;
+	for (LanguageTab &t : tabs) {
+		t.w = ui::chip_width(fonts_.small, t.label);
+		t.x = x;
+		x += t.w + LANG_TAB_GAP;
+	}
+	sub_tabs_.swap(tabs);
+
+	int tab = 0;
+	for (int i = 0; i < (int)sub_tabs_.size(); i++) {
+		if (sub_tabs_[i].name == open_tab) tab = i;
+	}
+	show_language_tab(tab);
+	columns_[0].selected = 0;
+	for (int i = 0; i < (int)sub_rows_.size(); i++) {
+		const SubtitleOption &o = sub_options_[sub_rows_[i]];
+		if (o.kind == selected.kind && o.id == selected.id) columns_[0].selected = i;
+	}
+}
+
+// Lists "Off" and the subtitles in tab `tab`'s language.
+void PlayerScreen::show_language_tab(int tab) {
+	sub_tab_ = std::clamp(tab, 0, std::max(0, (int)sub_tabs_.size() - 1));
+	// The row shows whole tabs from sub_tabs_first_, moved only as far as it
+	// takes to show this one.
+	if (sub_tabs_first_ > sub_tab_) sub_tabs_first_ = sub_tab_;
+	if (!sub_tabs_.empty()) {
+		const LanguageTab &t = sub_tabs_[sub_tab_];
+		while (sub_tabs_first_ < sub_tab_ && t.x + t.w - sub_tabs_[sub_tabs_first_].x > LANG_TABS_W) sub_tabs_first_++;
+	}
+	const std::string name = sub_tabs_.empty() ? "" : sub_tabs_[sub_tab_].name;
+	sub_rows_.clear();
+	for (int i = 0; i < (int)sub_options_.size(); i++) {
+		const SubtitleOption &o = sub_options_[i];
+		if (o.kind == SubtitleOption::OFF || tab_name(o.lang) == name) sub_rows_.push_back(i);
+	}
+}
+
+// Opens the panel on the subtitle (and its language tab) and audio track in use.
+void PlayerScreen::open_menu() {
+	menu_open_ = true;
+	menu_column_ = 0;
+	int tab = 0;
+	for (const SubtitleOption &o : sub_options_) {
+		if (o.kind == SubtitleOption::OFF || o.kind != sub_kind_ || o.id != sub_id_) continue;
+		for (int i = 0; i < (int)sub_tabs_.size(); i++) {
+			if (sub_tabs_[i].name == tab_name(o.lang)) tab = i;
+		}
+	}
+	show_language_tab(tab);
+	columns_[0].selected = 0;
+	for (int i = 0; i < (int)sub_rows_.size(); i++) {
+		const SubtitleOption &o = sub_options_[sub_rows_[i]];
+		if (o.kind == sub_kind_ && (sub_kind_ == SubtitleOption::OFF || o.id == sub_id_)) columns_[0].selected = i;
+	}
+	for (int i = 0; i < (int)audio_tracks_.size(); i++) {
+		if (audio_tracks_[i].id == player_->audio_track()) columns_[1].selected = i;
+	}
 }
 
 void PlayerScreen::choose_subtitle(const SubtitleOption &option, bool remember) {
@@ -230,7 +318,15 @@ void PlayerScreen::auto_select() {
 }
 
 void PlayerScreen::update_menu(uint32_t pressed) {
-	const int count[2] = { (int)sub_options_.size(), (int)audio_tracks_.size() };
+	// L1 / R1: the previous / next language, starting on its first subtitle.
+	const int step = (pressed & platform::BUTTON_R1) ? 1 : (pressed & platform::BUTTON_L1) ? -1 : 0;
+	if (step != 0 && !sub_tabs_.empty()) {
+		const int n = (int)sub_tabs_.size();
+		show_language_tab((sub_tab_ + step + n) % n);
+		menu_column_ = 0;
+		columns_[0].selected = sub_rows_.size() > 1 ? 1 : 0;
+	}
+	const int count[2] = { (int)sub_rows_.size(), (int)audio_tracks_.size() };
 	Column &col = columns_[menu_column_];
 	if (pressed & platform::BUTTON_UP) col.selected = std::max(0, col.selected - 1);
 	if (pressed & platform::BUTTON_DOWN) col.selected = std::min(count[menu_column_] - 1, col.selected + 1);
@@ -238,7 +334,7 @@ void PlayerScreen::update_menu(uint32_t pressed) {
 	if ((pressed & platform::BUTTON_RIGHT) && menu_column_ == 0 && count[1] > 0) menu_column_ = 1;
 	if (pressed & platform::BUTTON_ACCEPT) {
 		if (menu_column_ == 0 && col.selected < count[0]) {
-			choose_subtitle(sub_options_[col.selected], true);
+			choose_subtitle(sub_options_[sub_rows_[col.selected]], true);
 		} else if (menu_column_ == 1 && col.selected < count[1]) {
 			choose_audio(audio_tracks_[col.selected].id, true);
 		}
@@ -289,19 +385,7 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 			}
 			if (pressed & platform::BUTTON_LEFT) queue_seek(-SEEK_STEP);
 			if (pressed & platform::BUTTON_RIGHT) queue_seek(SEEK_STEP);
-			if (pressed & (platform::BUTTON_UP | platform::BUTTON_OPTIONS)) {
-				menu_open_ = true;
-				menu_column_ = 0;
-				// Start on the active subtitle / audio track.
-				for (int i = 0; i < (int)sub_options_.size(); i++) {
-					if (sub_options_[i].kind == sub_kind_ && (sub_kind_ == SubtitleOption::OFF || sub_options_[i].id == sub_id_)) {
-						columns_[0].selected = i;
-					}
-				}
-				for (int i = 0; i < (int)audio_tracks_.size(); i++) {
-					if (audio_tracks_[i].id == player_->audio_track()) columns_[1].selected = i;
-				}
-			}
+			if (pressed & (platform::BUTTON_UP | platform::BUTTON_OPTIONS)) open_menu();
 			if (pressed & platform::BUTTON_DOWN) show_overlay();
 		}
 	}
@@ -329,8 +413,9 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 	const float target = (keep || overlay_timer_ > 0) ? 1.0f : 0.0f;
 	overlay_ += (target - overlay_) * std::min(1.0f, (float)dt * 8.0f);
 	menu_ += ((menu_open_ ? 1.0f : 0.0f) - menu_) * std::min(1.0f, (float)dt * 10.0f);
-	for (Column &c : columns_) {
-		c.scroll = ui::follow(c.scroll, c.selected * (ROW_H + ROW_GAP), ROW_H, LIST_BOTTOM - LIST_TOP, dt);
+	for (int i = 0; i < 2; i++) {
+		const float top = i == 0 ? SUB_LIST_TOP : LIST_TOP;
+		columns_[i].scroll = ui::follow(columns_[i].scroll, columns_[i].selected * (ROW_H + ROW_GAP), ROW_H, LIST_BOTTOM - top, dt);
 	}
 	toast_.update(dt);
 }
@@ -369,15 +454,15 @@ void PlayerScreen::draw_menu(Renderer &r) {
 	r.rect(PANEL_X, 0, PANEL_W, H, theme::BASE_100.with_alpha(0.94f));
 	r.text(fonts_.page_header, "Audio & subtitles", COL_SUB_X, S(96), theme::BASE_CONTENT);
 
-	auto column = [&](int index, const char *title, float x, float w, const std::vector<std::pair<std::string, std::string>> &rows,
-						  int active) {
+	auto column = [&](int index, const char *title, float x, float w, float top,
+						  const std::vector<std::pair<std::string, std::string>> &rows, int active) {
 		const bool focused = menu_column_ == index;
 		r.text(fonts_.section, title, x, LIST_TOP - S(24), focused ? theme::BASE_CONTENT : theme::BASE_CONTENT_MUTED);
 		const Column &col = columns_[index];
 		const float R = theme::RADIUS_FIELD;
 		for (int i = 0; i < (int)rows.size(); i++) {
-			const float y = LIST_TOP + i * (ROW_H + ROW_GAP) - col.scroll;
-			if (y + ROW_H < LIST_TOP - S(4) || y > LIST_BOTTOM) continue;
+			const float y = top + i * (ROW_H + ROW_GAP) - col.scroll;
+			if (y + ROW_H < top - S(4) || y > LIST_BOTTOM) continue;
 			const float sel = (focused && i == col.selected) ? 1.0f : 0.0f;
 			ui::begin_focus(r, x, y, w, ROW_H, R, sel, 1.0f);
 			r.rounded_rect(x, y, w, ROW_H, R, mix(theme::BASE_200, theme::PRIMARY, 0.3f * sel));
@@ -391,13 +476,13 @@ void PlayerScreen::draw_menu(Renderer &r) {
 			}
 			r.pop();
 		}
-		if (rows.empty()) r.text(fonts_.body, "None in this video", x, LIST_TOP + S(30), theme::BASE_CONTENT_MUTED);
+		if (rows.empty()) r.text(fonts_.body, "None in this video", x, top + S(30), theme::BASE_CONTENT_MUTED);
 	};
 
 	std::vector<std::pair<std::string, std::string>> subs, audio;
-	int active_sub = 0, active_audio = -1;
-	for (int i = 0; i < (int)sub_options_.size(); i++) {
-		const SubtitleOption &o = sub_options_[i];
+	int active_sub = -1, active_audio = -1; // -1: the one in use is in another tab
+	for (int i = 0; i < (int)sub_rows_.size(); i++) {
+		const SubtitleOption &o = sub_options_[sub_rows_[i]];
 		subs.push_back({ o.label, o.detail });
 		if (o.kind == sub_kind_ && (o.kind == SubtitleOption::OFF || o.id == sub_id_)) active_sub = i;
 	}
@@ -412,10 +497,37 @@ void PlayerScreen::draw_menu(Renderer &r) {
 		}
 		if (audio_tracks_[i].id == player_->audio_track()) active_audio = i;
 	}
-	column(0, "Subtitles", COL_SUB_X, COL_SUB_W, subs, active_sub);
-	column(1, "Audio", COL_AUDIO_X, COL_AUDIO_W, audio, active_audio);
-	ui::hints(r, fonts_.small, { { "\xC3\x97", "Select" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Column" }, { "\xE2\x97\x8B", "Close" } },
-			COL_SUB_X, H - S(52));
+	column(0, "Subtitles", COL_SUB_X, COL_SUB_W, SUB_LIST_TOP, subs, active_sub);
+	column(1, "Audio", COL_AUDIO_X, COL_AUDIO_W, LIST_TOP, audio, active_audio);
+
+	// Language tabs in their box over the subtitles column: the ones that fit,
+	// widened to fill it, with "<" / ">" on the side of the others.
+	int last = sub_tabs_first_;
+	while (last + 1 < (int)sub_tabs_.size() &&
+			sub_tabs_[last + 1].x + sub_tabs_[last + 1].w - sub_tabs_[sub_tabs_first_].x <= LANG_TABS_W) {
+		last++;
+	}
+	const bool more_left = sub_tabs_first_ > 0, more_right = last + 1 < (int)sub_tabs_.size();
+	if (!sub_tabs_.empty()) {
+		r.rounded_rect(COL_SUB_X, LIST_TOP, COL_SUB_W, LANG_BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
+		const int shown = last - sub_tabs_first_ + 1;
+		const float used = sub_tabs_[last].x + sub_tabs_[last].w - sub_tabs_[sub_tabs_first_].x;
+		const float extra = std::max(0.0f, LANG_TABS_W - used) / shown;
+		float x = COL_SUB_X + LANG_BOX_PAD;
+		for (int i = sub_tabs_first_; i <= last; i++) {
+			const LanguageTab &t = sub_tabs_[i];
+			ui::chip(r, fonts_.small, t.label, x, LIST_TOP + LANG_BOX_PAD, t.w + extra, LANG_TAB_H, i == sub_tab_, 0.0f, theme::BASE_200);
+			x += t.w + extra + LANG_TAB_GAP;
+		}
+	}
+	const float arrow_y = LIST_TOP + LANG_BOX_H / 2 + fonts_.body.size() * 0.36f;
+	if (more_left) r.text(fonts_.body, "<", COL_SUB_X - S(10) - fonts_.body.measure("<"), arrow_y, theme::BASE_CONTENT_MUTED);
+	if (more_right) r.text(fonts_.body, ">", COL_SUB_X + COL_SUB_W + S(10), arrow_y, theme::BASE_CONTENT_MUTED);
+
+	std::vector<ui::Hint> hints = { { "\xC3\x97", "Select" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Column" } };
+	if (sub_tabs_.size() > 1) hints.push_back({ "L1 R1", "Language" });
+	hints.push_back({ "\xE2\x97\x8B", "Close" });
+	ui::hints(r, fonts_.small, hints, COL_SUB_X, H - S(52));
 	r.pop();
 }
 

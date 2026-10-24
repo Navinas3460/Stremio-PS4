@@ -1,11 +1,14 @@
 // Language names for ISO 639-1 / 639-2 codes (subtitle and audio tracks,
 // add-on subtitles). Unknown codes are returned as given, upper-cased.
+// Some add-ons send full names ("English") or regional codes ("pt-BR",
+// "zh_TW"); those are recognised too.
 #pragma once
 
 #include <cctype>
 #include <string>
 
-inline std::string language_name(const std::string &code_in) {
+// The language's name, or nullptr for a code that isn't recognised.
+inline const char *find_language(const std::string &code_in) {
 	std::string code;
 	for (char c : code_in) code += (char)tolower((unsigned char)c);
 	struct Entry {
@@ -33,10 +36,27 @@ inline std::string language_name(const std::string &code_in) {
 		{ "ga", "gle", "", "Irish" }, { "sq", "alb", "sqi", "Albanian" }, { "hy", "arm", "hye", "Armenian" },
 		{ "ka", "geo", "kat", "Georgian" }, { "", "und", "", "Unknown" },
 	};
+	if (code.empty()) return nullptr;
 	for (const Entry &e : table) {
-		if (code.empty()) break;
 		if (code == e.a || code == e.b || code == e.b2) return e.name;
 	}
+	for (const Entry &e : table) {
+		std::string name;
+		for (const char *c = e.name; *c; c++) name += (char)tolower((unsigned char)*c);
+		if (code == name) return e.name;
+	}
+	const size_t sep = code.find_first_of("-_");
+	if (sep != std::string::npos) {
+		const std::string base = code.substr(0, sep), region = code.substr(sep + 1);
+		if (base == "pt" && region == "br") return find_language("pob");
+		if (base == "zh" && (region == "tw" || region == "hk" || region == "hant")) return find_language("zht");
+		return find_language(base);
+	}
+	return nullptr;
+}
+
+inline std::string language_name(const std::string &code_in) {
+	if (const char *name = find_language(code_in)) return name;
 	std::string upper;
 	for (char c : code_in) upper += (char)toupper((unsigned char)c);
 	return upper;
