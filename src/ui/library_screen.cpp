@@ -16,14 +16,7 @@ using theme::S;
 const float W = 1920;
 const float MARGIN_X = 120;
 const float VIEW_W = W - 2 * MARGIN_X;
-float gap() { return S(28); }
-float row_gap() { return S(20); }
-// 8 columns at 100% UI scale; fewer, bigger posters at larger scales.
-int columns() { return std::clamp((int)std::lround(8 * 100.0 / theme::ui_scale_percent()), 5, 10); }
-float card_w() { return (VIEW_W - (columns() - 1) * gap()) / columns(); }
-float card_h() { return card_w() * 1.5f; } // posters are 2:3
-float cell_h() { return card_h() + poster_caption_h(); }
-float pitch() { return cell_h() + row_gap(); }
+using namespace poster_grid;
 float title_baseline() { return S(96); }
 float chip_h() { return S(52); }
 float chip_gap() { return S(12); }
@@ -37,16 +30,6 @@ const char *SORT_LABELS[] = { "Recent", "A\xE2\x80\x93Z", "Most watched" }; // S
 // the screen).
 std::string g_type;
 int g_sort = (int)Stremio::LibrarySort::LAST_WATCHED;
-
-std::string type_label(const std::string &type) {
-	if (type == "movie") return "Movies";
-	if (type == "series") return "Series";
-	if (type == "channel") return "Channels";
-	if (type == "tv") return "TV";
-	std::string label = type;
-	if (!label.empty()) label[0] = (char)toupper((unsigned char)label[0]);
-	return label;
-}
 
 } // namespace
 

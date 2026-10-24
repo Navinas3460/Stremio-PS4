@@ -43,6 +43,14 @@ std::string capitalize(const std::string &s) {
 	return out;
 }
 
+// Content types in the order they're offered: movie and series first, then A-Z.
+void sort_types(std::vector<std::string> &types) {
+	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
+	std::sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
+		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
+	});
+}
+
 } // namespace
 
 Stremio &stremio() {
@@ -147,6 +155,9 @@ void Stremio::logout() {
 	addons_loaded_ = false;
 	notifications_.clear();
 	board_.clear();
+	discover_ = Discover();
+	discover_opened_ = false;
+	discover_sources_.clear();
 	if (!demo_) platform::remove_file(session_path());
 	demo_ = false;
 	auth_rev++;
@@ -377,6 +388,7 @@ void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void
 void Stremio::after_sync() {
 	if (--pending_syncs_ > 0) return;
 	load_board();
+	discover_rebuild();
 	pull_notifications();
 }
 
@@ -537,6 +549,172 @@ void Stremio::search(const std::string &query) {
 	fetch_rows(search_, search_rev, [this, gen] { return gen == search_gen_; });
 }
 
+// --- Discover (models/catalog_with_filters.rs) ------------------------------------------
+
+namespace {
+
+const size_t DISCOVER_MAX_ITEMS = 1000;
+
+// Discover can show a catalog when each extra it requires has options to
+// pick from (stremio-core: the catalog supports its default required extra).
+bool discoverable(const Addon &addon, const Catalog &cat) {
+	for (const ExtraProp &e : cat.extra) {
+		if (e.is_required && e.options.empty()) return false;
+	}
+	return !addon.resource_url("catalog", cat.type, cat.id).empty();
+}
+
+// The extra offered as Discover's filter row: the first one with options.
+const ExtraProp *discover_filter(const Catalog &cat) {
+	for (const ExtraProp &e : cat.extra) {
+		if (!e.options.empty()) return &e;
+	}
+	return nullptr;
+}
+
+} // namespace
+
+void Stremio::discover_open() {
+	if (discover_opened_) return;
+	discover_opened_ = true;
+	discover_rebuild();
+}
+
+std::string Stremio::discover_catalog_key() const {
+	if (discover_.catalog >= (int)discover_sources_.size()) return "";
+	const auto &src = discover_sources_[discover_.catalog];
+	if (src.first >= addons_.size() || src.second >= addons_[src.first].catalogs.size()) return "";
+	const Addon &addon = addons_[src.first];
+	const Catalog &cat = addon.catalogs[src.second];
+	return addon.transport_url + " " + cat.type + " " + cat.id;
+}
+
+// The type's catalogs (the one matching `catalog_key` selected, if any) and
+// the selected catalog's filter options.
+void Stremio::discover_lists(const std::string &catalog_key) {
+	Discover &d = discover_;
+	discover_sources_.clear();
+	std::vector<std::string> names;
+	for (size_t a = 0; a < addons_.size(); a++) {
+		for (size_t c = 0; c < addons_[a].catalogs.size(); c++) {
+			const Catalog &cat = addons_[a].catalogs[c];
+			if (cat.type != d.type || !discoverable(addons_[a], cat)) continue;
+			discover_sources_.push_back({ a, c });
+			names.push_back(cat.name.empty() ? cat.id : cat.name);
+		}
+	}
+	// Two add-ons' "Popular": name the add-on.
+	d.catalogs.clear();
+	for (size_t i = 0; i < names.size(); i++) {
+		const bool shared = std::count(names.begin(), names.end(), names[i]) > 1;
+		d.catalogs.push_back(shared ? names[i] + " (" + addons_[discover_sources_[i].first].name + ")" : names[i]);
+	}
+	d.catalog = std::clamp(d.catalog, 0, std::max(0, (int)d.catalogs.size() - 1));
+	for (int i = 0; i < (int)discover_sources_.size(); i++) {
+		const Addon &addon = addons_[discover_sources_[i].first];
+		const Catalog &cat = addon.catalogs[discover_sources_[i].second];
+		if (addon.transport_url + " " + cat.type + " " + cat.id == catalog_key) d.catalog = i;
+	}
+
+	// "All" (unless the filter is required), then the options.
+	d.filter_options.clear();
+	if (!discover_sources_.empty()) {
+		const Catalog &cat = addons_[discover_sources_[d.catalog].first].catalogs[discover_sources_[d.catalog].second];
+		if (const ExtraProp *f = discover_filter(cat)) {
+			if (!f->is_required) d.filter_options.push_back("");
+			d.filter_options.insert(d.filter_options.end(), f->options.begin(), f->options.end());
+		}
+	}
+	if (std::find(d.filter_options.begin(), d.filter_options.end(), d.filter) == d.filter_options.end()) {
+		d.filter = d.filter_options.empty() ? "" : d.filter_options[0];
+	}
+}
+
+// After an add-on sync: the lists again, reloading only if the selected
+// catalog or filter is gone.
+void Stremio::discover_rebuild() {
+	if (!discover_opened_) return;
+	Discover &d = discover_;
+	const std::string key = discover_catalog_key(), filter = d.filter;
+	d.types.clear();
+	for (const Addon &addon : addons_) {
+		for (const Catalog &cat : addon.catalogs) {
+			if (discoverable(addon, cat) && std::find(d.types.begin(), d.types.end(), cat.type) == d.types.end()) {
+				d.types.push_back(cat.type);
+			}
+		}
+	}
+	sort_types(d.types);
+	if (std::find(d.types.begin(), d.types.end(), d.type) == d.types.end()) {
+		d.type = d.types.empty() ? "" : d.types[0];
+	}
+	discover_lists(key);
+	if (discover_catalog_key() != key || d.filter != filter || (d.items.empty() && !d.loading)) {
+		d.items.clear();
+		discover_fetch(false);
+	}
+	discover_rev++;
+}
+
+void Stremio::discover_select(const std::string &type, int catalog, const std::string &filter) {
+	Discover &d = discover_;
+	d.type = type;
+	d.catalog = catalog;
+	d.filter = filter;
+	discover_lists("");
+	d.items.clear();
+	discover_fetch(false);
+}
+
+void Stremio::discover_load_more() {
+	if (!discover_.loading && discover_.has_more) discover_fetch(true);
+}
+
+void Stremio::discover_fetch(bool next_page) {
+	Discover &d = discover_;
+	const int gen = ++discover_gen_, session = gen_;
+	d.error.clear();
+	d.has_more = false;
+	d.loading = false;
+	discover_rev++;
+	const std::string key = discover_catalog_key();
+	if (key.empty()) return; // no catalogs (yet)
+	const Addon &addon = addons_[discover_sources_[d.catalog].first];
+	const Catalog &cat = addon.catalogs[discover_sources_[d.catalog].second];
+	const ExtraProp *filter = discover_filter(cat);
+	std::vector<std::pair<std::string, std::string>> extra;
+	for (const ExtraProp &e : cat.extra) {
+		if (filter && e.name == filter->name) {
+			if (!d.filter.empty()) extra.push_back({ e.name, d.filter });
+		} else if (e.is_required) {
+			extra.push_back({ e.name, e.options[0] });
+		}
+	}
+	if (next_page) extra.push_back({ "skip", std::to_string(d.items.size()) });
+	const bool pages = cat.extra_prop("skip") != nullptr;
+	d.loading = true;
+	fetch_json(addon.resource_url("catalog", cat.type, cat.id, extra),
+			[this, gen, session, pages](bool ok, const Json &json, const std::string &error) {
+				if (gen != discover_gen_ || session != gen_) return;
+				Discover &d = discover_;
+				d.loading = false;
+				std::vector<MetaItem> metas;
+				if (ok && metas_from_response(json, metas)) {
+					size_t added = 0;
+					for (MetaItem &m : metas) { // pages can repeat titles
+						if (d.items.size() >= DISCOVER_MAX_ITEMS) break;
+						if (std::any_of(d.items.begin(), d.items.end(), [&](const MetaItem &i) { return i.id == m.id; })) continue;
+						d.items.push_back(std::move(m));
+						added++;
+					}
+					d.has_more = pages && added > 0 && d.items.size() < DISCOVER_MAX_ITEMS;
+				} else {
+					d.error = ok ? "unexpected catalog response" : error;
+				}
+				discover_rev++;
+			});
+}
+
 // --- Meta details & streams (models/meta_details.rs) -----------------------------------
 
 const LibraryItem *Stremio::library_item(const std::string &id) const {
@@ -579,10 +757,7 @@ std::vector<std::string> Stremio::library_types() const {
 			types.push_back(item.type);
 		}
 	}
-	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
-	std::sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
-		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
-	});
+	sort_types(types);
 	return types;
 }
 

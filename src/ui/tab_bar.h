@@ -1,5 +1,6 @@
-// The four main tabs (Home, Search, Library, Settings): the bottom navigation
-// bar they share, and switching between them (R1 / L1, or the bar itself).
+// The five main tabs (Home, Discover, Search, Library, Settings): the bottom
+// navigation bar they share, and switching between them (R1 / L1, or the bar
+// itself).
 #pragma once
 
 #include "components.h"
@@ -11,7 +12,7 @@
 
 namespace tabs {
 
-enum Tab { HOME, SEARCH, LIBRARY, SETTINGS, COUNT };
+enum Tab { HOME, DISCOVER, SEARCH, LIBRARY, SETTINGS, COUNT };
 
 // Layout shared by the tab screens: content goes above content_bottom().
 // The tabs sit in one pill-shaped box (daisyUI "tabs-box").

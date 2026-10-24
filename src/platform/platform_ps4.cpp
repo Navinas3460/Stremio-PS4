@@ -198,6 +198,7 @@ bool poll(uint32_t &held) {
 	if (b & ORBIS_PAD_BUTTON_L1) held |= BUTTON_L1;
 	if (b & ORBIS_PAD_BUTTON_R1) held |= BUTTON_R1;
 	if (b & ORBIS_PAD_BUTTON_TRIANGLE) held |= BUTTON_TRIANGLE;
+	if (b & ORBIS_PAD_BUTTON_SQUARE) held |= BUTTON_SQUARE;
 	// Left stick works like the D-pad.
 	const int sx = (int)data.leftStick.x - 128, sy = (int)data.leftStick.y - 128;
 	if (sx < -64) held |= BUTTON_LEFT;

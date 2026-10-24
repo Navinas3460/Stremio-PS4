@@ -6,6 +6,8 @@
 #include "screen.h"
 #include "theme.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -30,6 +32,21 @@ void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float
 // artwork they'd clash with the title printed on most posters).
 inline float poster_caption_h() { return theme::S(84); }
 void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h);
+
+// The poster grid of Library and Discover, between the screen margins: 8
+// columns at 100% UI scale, fewer and bigger posters at larger scales.
+namespace poster_grid {
+inline int columns() { return std::clamp((int)std::lround(8 * 100.0 / theme::ui_scale_percent()), 5, 10); }
+inline float gap() { return theme::S(28); }
+inline float row_gap() { return theme::S(20); }
+inline float card_w() { return (1920 - 2 * 120 - (columns() - 1) * gap()) / columns(); }
+inline float card_h() { return card_w() * 1.5f; } // posters are 2:3
+inline float cell_h() { return card_h() + poster_caption_h(); }
+inline float pitch() { return cell_h() + row_gap(); }
+} // namespace poster_grid
+
+// A content type as a filter label: "movie" -> "Movies", "anime" -> "Anime".
+std::string type_label(const std::string &type);
 
 // Pushes the details screen for `c`.
 void open_details(const Card &c, Fonts &fonts, Navigator &nav);

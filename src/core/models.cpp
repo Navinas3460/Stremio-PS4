@@ -149,14 +149,14 @@ std::vector<std::string> wide_artwork(const std::string &id, const std::string &
 	return urls;
 }
 
-// --- LibraryItem --------------------------------------------------------------
-
-std::vector<std::string> LibraryItem::poster_images() const {
+std::vector<std::string> poster_artwork(const std::string &id, const std::string &poster) {
 	std::vector<std::string> urls;
 	if (!poster.empty()) urls.push_back(poster);
 	if (id.compare(0, 2, "tt") == 0) urls.push_back(std::string(METAHUB) + "/poster/medium/" + id + "/img");
 	return urls;
 }
+
+// --- LibraryItem --------------------------------------------------------------
 
 LibraryItem LibraryItem::from_json(const Json &j) {
 	LibraryItem item;
@@ -325,12 +325,14 @@ Addon Addon::from_json(const Json &d) {
 		if (c["extra"].is_array()) { // full form
 			for (const Json &e : c["extra"].elements()) {
 				if (!e["name"].is_string()) continue;
-				cat.extra.push_back({ e["name"].as_string(), e["isRequired"].as_bool(), (int)e["optionsLimit"].as_int(1) });
+				cat.extra.push_back({ e["name"].as_string(), e["isRequired"].as_bool(), (int)e["optionsLimit"].as_int(1),
+						strings(e["options"]) });
 			}
 		} else { // legacy short form
 			const std::vector<std::string> required = strings(c["extraRequired"]);
+			// with the genres in their own field
 			for (const std::string &n : strings(c["extraSupported"])) {
-				cat.extra.push_back({ n, contains(required, n), 1 });
+				cat.extra.push_back({ n, contains(required, n), 1, n == "genre" ? strings(c["genres"]) : std::vector<std::string>() });
 			}
 		}
 		a.catalogs.push_back(cat);

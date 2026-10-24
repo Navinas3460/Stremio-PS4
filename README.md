@@ -14,6 +14,9 @@ itself.
 - **Home:**
   - Continue watching, with progress and new-episode badges.
   - Rows from your add-on catalogues.
+- **Discover:** browse any add-on catalogue as a poster grid, loading more
+  titles as you scroll. □ opens the filters: type, catalogue and genre (or
+  year).
 - **Search** across all your add-ons, with an on-screen keyboard.
 - **Library:** everything in your Stremio library as a poster grid, filtered
   by type and sorted by recently watched, name or most watched. Add or
@@ -63,10 +66,11 @@ itself.
 | D-pad | Move |
 | × | Select / play-pause |
 | ○ | Back |
-| L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter; in Audio & subtitles, the subtitle language |
+| L1 / R1 | Previous / next tab (Home, Discover, Search, Library, Settings); on a details page, the add-on filter; in Audio & subtitles, the subtitle language |
 | ◀ ▶ (in the player) | Seek 10 s (presses add up) |
 | ▲ (in the player) | Audio & subtitles |
 | △ (in the player) | Aspect ratio |
+| □ (in Discover) | Filters |
 | ◀ ▶ (on Settings' UI scale) | Smaller / larger; × resets to 100% |
 
 ## Limitations

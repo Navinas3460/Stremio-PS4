@@ -21,6 +21,21 @@ struct BoardRow {
 	std::string error;
 };
 
+// Discover (stremio-core CatalogWithFilters): one add-on catalog at a time,
+// picked by type, catalog and its filter (genre, year...), loaded a page at
+// a time.
+struct Discover {
+	std::vector<std::string> types;          // movie and series first, then A-Z
+	std::string type;
+	std::vector<std::string> catalogs;       // the type's catalogs (names)
+	int catalog = 0;
+	std::vector<std::string> filter_options; // the catalog's genres, years...; "" = All
+	std::string filter;
+	std::vector<MetaItem> items;
+	bool loading = false, has_more = false;
+	std::string error;
+};
+
 struct LinkLogin {
 	bool active = false;
 	std::string code, link, qr_url;
@@ -62,6 +77,14 @@ public:
 	void search(const std::string &query);
 	const std::vector<BoardRow> &search_results() const { return search_; }
 	const std::string &search_query() const { return search_query_; }
+	// Discover: discover_open() loads the first catalog the first time;
+	// discover_select() switches type / catalog / filter ("" type: keep).
+	const Discover &discover() const { return discover_; }
+	void discover_open();
+	void discover_select(const std::string &type, int catalog, const std::string &filter);
+	void discover_load_more();
+	bool addons_loaded() const { return addons_loaded_; }
+
 	bool library_loaded() const { return library_loaded_; }
 	const std::string &library_error() const { return library_error_; }
 	const std::string &addons_error() const { return addons_error_; }
@@ -103,7 +126,7 @@ public:
 	void update(double dt);
 
 	// Bumped whenever the corresponding state changes.
-	int auth_rev = 0, library_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0;
+	int auth_rev = 0, library_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0, discover_rev = 0;
 
 private:
 	using ApiCallback = std::function<void(bool ok, const Json &result, const std::string &error)>;
@@ -126,6 +149,16 @@ private:
 	std::vector<BoardRow> search_;
 	std::string search_query_;
 	int search_gen_ = 0;
+	// Discover's selectable lists from the add-ons; keeps the selection when
+	// it's still there.
+	void discover_rebuild();
+	void discover_lists(const std::string &catalog_key);
+	std::string discover_catalog_key() const;
+	void discover_fetch(bool next_page);
+	Discover discover_;
+	bool discover_opened_ = false;
+	std::vector<std::pair<size_t, size_t>> discover_sources_; // the type's catalogs: (add-on, catalog) indices
+	int discover_gen_ = 0;
 	void pull_notifications();
 	void poll_link();
 	int64_t cw_time(const LibraryItem &item) const;

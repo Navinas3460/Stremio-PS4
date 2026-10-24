@@ -16,6 +16,8 @@ std::string format_time(int64_t unix_seconds);
 std::string uri_encode(const std::string &s);
 
 std::vector<std::string> wide_artwork(const std::string &id, const std::string &background, const std::string &poster);
+// Portrait artwork, best first: the poster, then Metahub's for IMDb ids.
+std::vector<std::string> poster_artwork(const std::string &id, const std::string &poster);
 
 // stremio-core types::library::LibraryItem
 struct LibraryItem {
@@ -48,7 +50,7 @@ struct LibraryItem {
 	int minutes_left() const;        // -1 if unknown
 	std::string episode_label() const; // "S1 · E3" for series
 	std::vector<std::string> landscape_images() const { return wide_artwork(id, "", poster); }
-	std::vector<std::string> poster_images() const; // portrait artwork, best first
+	std::vector<std::string> poster_images() const { return poster_artwork(id, poster); }
 };
 
 struct Video {
@@ -72,6 +74,7 @@ struct MetaItem {
 
 	static MetaItem from_json(const Json &j);
 	std::vector<std::string> landscape_images() const { return wide_artwork(id, background, poster); }
+	std::vector<std::string> poster_images() const { return poster_artwork(id, poster); }
 };
 
 // Items of a catalog ResourceResponse: {"metas": [...]} or {"metasDetailed": [...]}.
@@ -82,6 +85,7 @@ struct ExtraProp {
 	std::string name;
 	bool is_required = false;
 	int options_limit = 1;
+	std::vector<std::string> options; // e.g. a catalog's genres or years
 };
 
 struct Catalog {

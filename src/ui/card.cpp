@@ -22,6 +22,16 @@ Card Card::from_meta(const MetaItem &m) {
 	return c;
 }
 
+std::string type_label(const std::string &type) {
+	if (type == "movie") return "Movies";
+	if (type == "series") return "Series";
+	if (type == "channel") return "Channels";
+	if (type == "tv") return "TV";
+	std::string label = type;
+	if (!label.empty()) label[0] = (char)toupper((unsigned char)label[0]);
+	return label;
+}
+
 namespace {
 // Artwork (or the title's initial) in a rounded w x h box.
 void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
