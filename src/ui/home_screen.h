@@ -28,6 +28,16 @@ private:
 	bool user_moved_ = false;
 	float content_scroll_ = 0;
 	int seen_library_rev_ = -1, seen_board_rev_ = -1, seen_notifications_rev_ = -1;
+	struct ContextOption {
+		std::string label;
+		int id; // 1: Remove CW, 2: Toggle Library, 3: Details, 4: Cancel
+	};
+	bool context_menu_open_ = false;
+	int context_menu_selected_ = 0;
+	std::vector<ContextOption> context_options_;
+	Card context_card_;
+	void open_context_menu(const Card &card, bool is_cw);
+	void draw_context_menu(Renderer &r);
 #if defined(STREMIO_DEV)
 	double fps_time_ = 0;
 	int fps_frames_ = 0, fps_ = 0;

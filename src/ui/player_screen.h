@@ -1,9 +1,7 @@
 // Full-screen video player. Controls: Cross play/pause, Left/Right seek 10 s
-// (presses add up), Up opens Audio & subtitles (L1 / R1 there switch the
-// subtitle language tab), Down shows the controls, Triangle cycles the
-// aspect ratio (Fit, Fill, Stretch, 16:9, 4:3, 21:9), Circle back. Watch
-// progress is reported to Stremio (stremio-core's player rules) so it
-// resumes everywhere.
+// (presses add up), Up opens Audio & subtitles, Down shows the controls,
+// Circle back. Watch progress is reported to Stremio (stremio-core's player
+// rules) so it resumes everywhere.
 //
 // Subtitles come from the video itself (embedded tracks, drawn by the
 // backend's cues) or from subtitle add-ons (SRT/VTT, parsed here). The
@@ -32,6 +30,7 @@ public:
 	~PlayerScreen() override;
 	void update(double dt, uint32_t pressed) override;
 	void draw(Renderer &r) override;
+	Color backdrop() const override { return Color{ 0, 0, 0, 1 }; }
 
 private:
 	// One row of the subtitles column.
@@ -40,12 +39,6 @@ private:
 		int id = -1;          // embedded: track id; add-on: index into addon_subs_
 		std::string lang;     // ISO code
 		std::string label, detail;
-	};
-	// A language tab above the subtitles column (L1 / R1): the column lists
-	// "Off" and that language's subtitles only.
-	struct LanguageTab {
-		std::string name, label; // "Arabic", "Arabic (3)"
-		float x = 0, w = 0;      // position in the scrolling row
 	};
 	struct Column {
 		int selected = 0;
@@ -57,8 +50,6 @@ private:
 	void show_overlay();
 
 	void rebuild_subtitle_options();
-	void show_language_tab(int tab);
-	void open_menu();
 	void choose_subtitle(const SubtitleOption &option, bool remember);
 	void choose_audio(int track, bool remember);
 	void auto_select();
@@ -79,15 +70,10 @@ private:
 	bool session_ = false;
 	VideoPlayer::State last_state_ = VideoPlayer::IDLE;
 	ui::Toast toast_;
-	int aspect_ = 0; // index into the aspect ratio modes (player_screen.cpp)
 
 	// Tracks and subtitles.
 	std::vector<SubtitleItem> addon_subs_;
 	std::vector<SubtitleOption> sub_options_;
-	std::vector<LanguageTab> sub_tabs_;
-	int sub_tab_ = 0;
-	int sub_tabs_first_ = 0;    // first tab shown in the row
-	std::vector<int> sub_rows_; // sub_options_ listed in the current tab
 	std::vector<VideoPlayer::Track> audio_tracks_;
 	SubtitleOption::Kind sub_kind_ = SubtitleOption::OFF;
 	int sub_id_ = -1;                 // embedded track id or add-on index
@@ -97,9 +83,27 @@ private:
 	bool audio_auto_done_ = false;
 	std::string pref_sub_lang_, pref_audio_lang_; // "" = none, "off" = subtitles off
 
+	void check_next_episode();
+	void trigger_autoplay(double countdown_seconds = 15.0);
+	void cancel_autoplay();
+	void fetch_next_streams_and_play();
+	void play_next_stream(const StreamItem &stream);
+	void draw_autoplay(Renderer &r);
+
 	// The Audio & subtitles panel.
 	bool menu_open_ = false;
 	float menu_ = 0; // panel opacity
 	int menu_column_ = 0; // 0 subtitles, 1 audio
 	Column columns_[2];
+
+	// Autoplay TV series
+	bool autoplay_enabled_ = true;
+	const Video *next_episode_ = nullptr;
+	bool autoplay_active_ = false;
+	bool autoplay_triggered_ = false;
+	bool autoplay_dismissed_ = false;
+	double autoplay_countdown_ = 0;
+	double autoplay_total_countdown_ = 15.0;
+	bool autoplay_loading_ = false;
+	std::vector<StreamItem> next_streams_;
 };

@@ -14,6 +14,9 @@ Card Card::from_meta(const MetaItem &m) {
 	Card c;
 	c.title = m.name;
 	c.subtitle = m.release_info;
+	if (!m.imdb_rating.empty()) {
+		c.subtitle += (c.subtitle.empty() ? "" : " \xC2\xB7 ") + std::string("IMDb ") + m.imdb_rating;
+	}
 	c.images = m.landscape_images();
 	c.meta_id = m.id;
 	c.type = m.type;
@@ -22,20 +25,10 @@ Card Card::from_meta(const MetaItem &m) {
 	return c;
 }
 
-std::string type_label(const std::string &type) {
-	if (type == "movie") return "Movies";
-	if (type == "series") return "Series";
-	if (type == "channel") return "Channels";
-	if (type == "tv") return "TV";
-	std::string label = type;
-	if (!label.empty()) label[0] = (char)toupper((unsigned char)label[0]);
-	return label;
-}
-
 namespace {
 // Artwork (or the title's initial) in a rounded w x h box.
 void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	r.rounded_rect(x, y, w, h, theme::radius_field(), theme::BASE_200);
+	r.rounded_rect(x, y, w, h, theme::RADIUS_FIELD, theme::BASE_200);
 	const Texture &art = images::first(c.images);
 	if (art.valid()) {
 		r.image_cover(art, x, y, w, h);
@@ -51,42 +44,49 @@ void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, fl
 // The artwork is square-cornered: cap its corners in the colour behind it
 // (the focus ring while it shows).
 void round_artwork(Renderer &r, const Card &c, float x, float y, float w, float h) {
-	r.round_corners(x, y, w, h, theme::radius_field(),
+	r.round_corners(x, y, w, h, theme::RADIUS_FIELD,
 			c.focus > 0.02f ? mix(theme::BASE_100, theme::PRIMARY, c.focus) : theme::BASE_100);
 }
 
-void draw_badge(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w) {
+void draw_badge(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h = 999.0f) {
 	if (c.badge.empty()) return;
-	const float bw = ui::badge_width(fonts.body, c.badge);
-	ui::badge(r, fonts.body, c.badge, x + w - S(16) - bw, y + S(16), theme::ACCENT, theme::ACCENT_CONTENT);
+	Font &f = h <= 190.0f ? fonts.small : fonts.body;
+	const float pad = h <= 190.0f ? (h * 0.08f) : S(16);
+	const float bw = ui::badge_width(f, c.badge);
+	ui::badge(r, f, c.badge, x + w - pad - bw, y + pad, theme::ACCENT, theme::ACCENT_CONTENT);
 }
 } // namespace
 
 void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	const float R = theme::radius_field();
+	const float R = theme::RADIUS_FIELD;
+	const bool compact = h <= 190.0f;
+	const float cs = h / 122.0f; // proportional card scale for compact Home rows
 	ui::begin_focus(r, x, y, w, h, R, c.focus);
 	draw_artwork(r, fonts, c, x, y, w, h);
-	r.vertical_fade(x, y + h * 0.35f, w, h * 0.65f, theme::BASE_100, 0.0f, 0.95f);
+	r.vertical_fade(x, y + h * (compact ? 0.25f : 0.35f), w, h * (compact ? 0.75f : 0.65f), theme::BASE_100, 0.0f, 0.95f);
 	round_artwork(r, c, x, y, w, h);
 
-	const float pad = S(24);
-	float baseline = y + h - S(22);
+	const float pad = compact ? (12.0f * cs) : S(24);
+	float baseline = y + h - (compact ? (11.0f * cs) : S(22));
 	if (c.progress > 0) {
-		const float bar_h = S(6), bar_y = y + h - S(20) - bar_h;
+		const float bar_h = compact ? std::max(3.0f, 4.0f * cs) : S(6);
+		const float bar_y = y + h - (compact ? (9.0f * cs) : S(20)) - bar_h;
 		ui::progress(r, x + pad, bar_y, w - 2 * pad, bar_h, c.progress);
-		baseline = bar_y - S(14);
+		baseline = bar_y - (compact ? (8.0f * cs) : S(14));
 	}
+	Font &sub_font = compact ? fonts.small : fonts.body;
+	Font &title_font = compact ? (cs < 0.85f ? fonts.small : fonts.body) : fonts.card_title;
 	if (!c.subtitle.empty()) {
-		r.text(fonts.body, fonts.body.ellipsize(c.subtitle, w - 2 * pad), x + pad, baseline, theme::BASE_CONTENT_MUTED);
-		baseline -= S(32);
+		r.text(sub_font, sub_font.ellipsize(c.subtitle, w - 2 * pad), x + pad, baseline, theme::BASE_CONTENT_MUTED);
+		baseline -= compact ? std::max(15.0f, 19.0f * cs) : S(32);
 	}
-	r.text(fonts.card_title, fonts.card_title.ellipsize(c.title, w - 2 * pad), x + pad, baseline, theme::BASE_CONTENT);
-	draw_badge(r, fonts, c, x, y, w);
+	r.text(title_font, title_font.ellipsize(c.title, w - 2 * pad), x + pad, baseline, theme::BASE_CONTENT);
+	draw_badge(r, fonts, c, x, y, w, h);
 	ui::end_focus(r, x, y, w, h, R, c.focus);
 }
 
 void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	const float R = theme::radius_field();
+	const float R = theme::RADIUS_FIELD;
 	ui::begin_focus(r, x, y, w, h, R, c.focus);
 	draw_artwork(r, fonts, c, x, y, w, h);
 	if (c.progress > 0) {
@@ -167,9 +167,12 @@ void update_row(CardRow &row, bool focused, const CardRowLayout &l, float view, 
 }
 
 void draw_row(Renderer &r, Fonts &fonts, const CardRow &row, const CardRowLayout &l, float x, float y, float view) {
-	r.text(fonts.section, fonts.section.ellipsize(row.title, view), x, y + S(34), theme::BASE_CONTENT);
+	const bool compact = l.cards_offset < l.card_h * 0.30f;
+	Font &hdr_font = compact ? (l.card_h < 105.0f ? fonts.body : fonts.card_title) : fonts.section;
+	const float hdr_y = compact ? (y + l.cards_offset - std::max(6.0f, l.cards_offset * 0.28f)) : (y + S(34));
+	r.text(hdr_font, hdr_font.ellipsize(row.title, view), x, hdr_y, theme::BASE_CONTENT);
 	if (row.cards.empty()) {
-		r.text(fonts.body, fonts.body.ellipsize(row.status, view), x, y + S(80),
+		r.text(fonts.body, fonts.body.ellipsize(row.status, view), x, y + (compact ? l.status_height * 0.68f : S(80)),
 				row.status_is_error ? theme::ERROR : theme::BASE_CONTENT_MUTED);
 		return;
 	}

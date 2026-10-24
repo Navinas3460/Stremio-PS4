@@ -33,6 +33,10 @@ public:
 	// of FFmpeg. Stored as `backend=avplayer` in <data dir>/player.cfg.
 	static bool hardware_selected();
 	static void select_hardware(bool hardware);
+
+	// Autoplay next episode for series (stored as `autoplay=0` or `autoplay=1` in <data dir>/player.cfg).
+	static bool autoplay_selected();
+	static void select_autoplay(bool enabled);
 	virtual ~VideoPlayer() = default;
 
 	// `headers`: extra HTTP request headers ("Name: value").

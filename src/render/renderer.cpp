@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include "../platform/platform.h"
+#include "../ui/theme.h"
 #include "font.h"
 
 #include <algorithm>
@@ -75,12 +76,29 @@ void Renderer::begin_frame(const Color &clear) {
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glClearColor(0, 0, 0, 1);
-	glClear(GL_COLOR_BUFFER_BIT); // letterbox bars (desktop)
+	glClear(GL_COLOR_BUFFER_BIT); // letterbox bars (desktop) and black backdrop (player)
 	draw_calls_ = 0;
-	rect(0, 0, (float)width_, (float)height_, clear);
+	if (clear.r > 0.001f || clear.g > 0.001f || clear.b > 0.001f) {
+		rect(0, 0, (float)width_, (float)height_, clear);
+	}
 }
 
 void Renderer::end_frame() {
+	float vx = 0, vy = 0, vw = (float)width_, vh = (float)height_;
+	theme::display_viewport_box((float)width_, (float)height_, vx, vy, vw, vh);
+	if (vx > 0.5f || vy > 0.5f) {
+		raw_coords_ = true;
+		const Color black{ 0, 0, 0, 1 };
+		if (vx > 0.5f) {
+			rect(0, 0, vx, (float)height_, black);
+			rect(vx + vw, 0, (float)width_ - (vx + vw), (float)height_, black);
+		}
+		if (vy > 0.5f) {
+			rect(0, 0, (float)width_, vy, black);
+			rect(0, vy + vh, (float)width_, (float)height_ - (vy + vh), black);
+		}
+		raw_coords_ = false;
+	}
 	flush();
 	last_draw_calls_ = draw_calls_;
 }
@@ -126,10 +144,16 @@ void Renderer::flush() {
 }
 
 void Renderer::transform_point(float &x, float &y) const {
-	for (size_t i = transforms_.size(); i-- > 0;) {
-		const Transform &t = transforms_[i];
-		x = t.cx + (x - t.cx) * t.scale;
-		y = t.cy + (y - t.cy) * t.scale;
+	if (!raw_coords_) {
+		for (size_t i = transforms_.size(); i-- > 0;) {
+			const Transform &t = transforms_[i];
+			x = t.cx + (x - t.cx) * t.scale;
+			y = t.cy + (y - t.cy) * t.scale;
+		}
+		float vx = 0, vy = 0, vw = (float)width_, vh = (float)height_;
+		theme::display_viewport_box((float)width_, (float)height_, vx, vy, vw, vh);
+		x = vx + (x / (float)width_) * vw;
+		y = vy + (y / (float)height_) * vh;
 	}
 }
 
@@ -249,6 +273,14 @@ void Renderer::round_corners(float x, float y, float w, float h, float radius, c
 	corner_fan(x + r, y + h - r, r, 3, false, background);
 }
 
+void Renderer::image(const Texture &t, float x, float y, float w, float h, float alpha) {
+	if (!t.valid() || w <= 0 || h <= 0) {
+		return;
+	}
+	const float shown = (float)t.picture_width() / t.width;
+	quad(IMAGE, t.id, Color{ 1, 1, 1, alpha }, x, y, w, h, 0, 0, shown, 1);
+}
+
 void Renderer::image_cover(const Texture &t, float x, float y, float w, float h, float alpha) {
 	if (!t.valid() || w <= 0 || h <= 0) {
 		return;
@@ -267,14 +299,6 @@ void Renderer::image_cover(const Texture &t, float x, float y, float w, float h,
 	}
 	const float shown = (float)t.picture_width() / t.width; // padding columns stay off screen
 	quad(IMAGE, t.id, Color{ 1, 1, 1, alpha }, x, y, w, h, u0 * shown, v0, u1 * shown, v1);
-}
-
-void Renderer::image_stretch(const Texture &t, float x, float y, float w, float h) {
-	if (!t.valid() || w <= 0 || h <= 0) {
-		return;
-	}
-	const float shown = (float)t.picture_width() / t.width; // padding columns stay off screen
-	quad(IMAGE, t.id, Color{ 1, 1, 1, 1 }, x, y, w, h, 0, 0, shown, 1);
 }
 
 // A 1x256 texture: rgb = the fade colour, alpha = 0..1 top to bottom.

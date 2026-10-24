@@ -2,9 +2,7 @@
 
 Stremio PS4 is designed for a 1920×1080 canvas viewed from across the room.
 The values below live in `src/ui/theme.h`. Every size there is the base value
-below × 1.15 (`BASE_SCALE`), which reads better on a TV, times the UI scale
-chosen in Settings (80–130%). Video subtitles keep their size at any UI
-scale.
+below × 1.15 (`UI_SCALE`), which reads better on a TV.
 
 ## Typography
 

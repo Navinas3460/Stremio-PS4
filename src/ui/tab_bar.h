@@ -12,16 +12,28 @@
 
 namespace tabs {
 
-enum Tab { HOME, DISCOVER, SEARCH, LIBRARY, SETTINGS, COUNT };
+enum Tab { HOME, DISCOVER, SEARCH, LIBRARY, ADDONS, SETTINGS, COUNT };
 
-// Layout shared by the tab screens: content goes above content_bottom().
-// The tabs sit in one pill-shaped box (daisyUI "tabs-box").
-inline float tab_w() { return theme::S(190); }
+// Layout shared by the tab screens: content goes above CONTENT_BOTTOM.
+// The tabs sit in one pill-shaped box (daisyUI "tabs-box"), scaled by UI scale.
+inline float tab_w() { return theme::S(164); }
 inline float tab_h() { return theme::S(68); }
 inline float box_pad() { return theme::S(10); }
 inline float box_h() { return tab_h() + 2 * box_pad(); }
 inline float box_y() { return 1080 - 40 - box_h(); }
 inline float content_bottom() { return box_y() - theme::S(22); }
+
+struct DynamicMetric {
+	float (*fn)();
+	operator float() const { return fn(); }
+};
+
+inline const DynamicMetric TAB_W{ tab_w };
+inline const DynamicMetric TAB_H{ tab_h };
+inline const DynamicMetric BOX_PAD{ box_pad };
+inline const DynamicMetric BOX_H{ box_h };
+inline const DynamicMetric BOX_Y{ box_y };
+inline const DynamicMetric CONTENT_BOTTOM{ content_bottom };
 
 // Shows `tab` as the bottom screen.
 void open(Tab tab, Fonts &fonts, Navigator &nav);

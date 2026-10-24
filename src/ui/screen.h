@@ -3,7 +3,6 @@
 
 #include "../render/font.h"
 #include "../render/renderer.h"
-#include "theme.h"
 
 #include <cstdint>
 #include <memory>
@@ -16,15 +15,10 @@ struct Fonts {
 	Font small;       // regular (controller hints, details)
 	Font subtitle;    // semibold, large (video subtitles)
 
-	// Sizes for the current UI scale (subtitles keep theirs).
-	void resize() {
-		page_header.set_size(theme::size_page_header());
-		section.set_size(theme::size_section_header());
-		card_title.set_size(theme::size_card_title());
-		body.set_size(theme::size_body());
-		small.set_size(theme::size_small());
-	}
+	void apply_scale();
 };
+
+#include "theme.h"
 
 class Screen {
 public:
@@ -32,6 +26,7 @@ public:
 	// `pressed` = platform::Button flags pressed this frame (with auto-repeat).
 	virtual void update(double dt, uint32_t pressed) = 0;
 	virtual void draw(Renderer &r) = 0;
+	virtual Color backdrop() const { return theme::BASE_100; }
 };
 
 // Screen stack: Home -> Details -> Player. Changes are applied after the

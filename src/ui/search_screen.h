@@ -17,7 +17,7 @@ public:
 	void draw(Renderer &r) override;
 
 private:
-	enum Area { KEYBOARD, RESULTS, BAR };
+	enum Area { FILTER, KEYBOARD, RESULTS, BAR };
 	struct Key {
 		std::string label, text; // text typed; "" for the special keys
 		int col, row, span;
@@ -28,12 +28,15 @@ private:
 	void press_key(const Key &k);
 	void move_keyboard(int dx, int dy);
 	void move_results(int dx, int dy);
+	void toggle_filter();
 	void rebuild_rows();
 
 	Fonts &fonts_;
 	Navigator &navigator_;
 	tabs::TabBar bar_{ tabs::SEARCH };
 	Area area_ = KEYBOARD;
+	Area prev_area_ = KEYBOARD;
+	float filter_focus_ = 0;
 	std::vector<Key> keys_;
 	int key_ = 0;
 	std::string query_;

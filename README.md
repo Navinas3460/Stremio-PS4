@@ -14,9 +14,6 @@ itself.
 - **Home:**
   - Continue watching, with progress and new-episode badges.
   - Rows from your add-on catalogues.
-- **Discover:** browse any add-on catalogue as a poster grid, loading more
-  titles as you scroll. □ opens the filters: type, catalogue and genre (or
-  year).
 - **Search** across all your add-ons, with an on-screen keyboard.
 - **Library:** everything in your Stremio library as a poster grid, filtered
   by type and sorted by recently watched, name or most watched. Add or
@@ -33,13 +30,9 @@ itself.
     and more. Decoding is done in software with FFmpeg, and it handles
     1080p.
   - Subtitles embedded in the video (text and Blu-ray/DVD image subtitles)
-    or from subtitle add-ons such as OpenSubtitles, grouped into one tab
-    per language.
+    or from subtitle add-ons such as OpenSubtitles.
   - Audio track selection.
-  - Aspect ratio modes: Fit, Fill (crops to fill the screen), Stretch, and
-    forced 16:9, 4:3 or 21:9.
-  - Remembers your subtitle and audio languages and the aspect ratio.
-- **Adjustable UI scale** (80–130%) in Settings, applied as you change it.
+  - Remembers your subtitle and audio languages.
 - **Synced with your account:** watch progress is saved to your Stremio
   library, so you can continue on any device.
 
@@ -66,12 +59,9 @@ itself.
 | D-pad | Move |
 | × | Select / play-pause |
 | ○ | Back |
-| L1 / R1 | Previous / next tab (Home, Discover, Search, Library, Settings); on a details page, the add-on filter; in Audio & subtitles, the subtitle language |
+| L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter |
 | ◀ ▶ (in the player) | Seek 10 s (presses add up) |
 | ▲ (in the player) | Audio & subtitles |
-| △ (in the player) | Aspect ratio |
-| □ (in Discover) | Filters |
-| ◀ ▶ (on Settings' UI scale) | Smaller / larger; × resets to 100% |
 
 ## Limitations
 

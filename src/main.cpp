@@ -61,11 +61,11 @@ bool load_fonts(Fonts &f) {
 	}
 	fallbacks.push_back(platform::asset_path("fonts/NotoSansCJKsc-Medium.ttf"));
 	Font::set_fallbacks(fallbacks);
-	return f.page_header.load(font("Inter-Bold.ttf"), theme::size_page_header()) &&
-			f.section.load(font("Inter-SemiBold.ttf"), theme::size_section_header()) &&
-			f.card_title.load(font("Inter-Medium.ttf"), theme::size_card_title()) &&
-			f.body.load(font("Inter-Regular.ttf"), theme::size_body()) &&
-			f.small.load(font("Inter-Regular.ttf"), theme::size_small()) &&
+	return f.page_header.load(font("Inter-Bold.ttf"), theme::SIZE_PAGE_HEADER) &&
+			f.section.load(font("Inter-SemiBold.ttf"), theme::SIZE_SECTION_HEADER) &&
+			f.card_title.load(font("Inter-Medium.ttf"), theme::SIZE_CARD_TITLE) &&
+			f.body.load(font("Inter-Regular.ttf"), theme::SIZE_BODY) &&
+			f.small.load(font("Inter-Regular.ttf"), theme::SIZE_SMALL) &&
 			f.subtitle.load(font("Inter-SemiBold.ttf"), theme::SIZE_SUBTITLE);
 }
 
@@ -159,7 +159,7 @@ int main() {
 
 		Screen &top = *stack.screens.back();
 		top.update(dt, input.update(held, now));
-		renderer.begin_frame(theme::BASE_100);
+		renderer.begin_frame(top.backdrop());
 		top.draw(renderer);
 		renderer.end_frame();
 		platform::present();

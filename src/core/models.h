@@ -16,8 +16,6 @@ std::string format_time(int64_t unix_seconds);
 std::string uri_encode(const std::string &s);
 
 std::vector<std::string> wide_artwork(const std::string &id, const std::string &background, const std::string &poster);
-// Portrait artwork, best first: the poster, then Metahub's for IMDb ids.
-std::vector<std::string> poster_artwork(const std::string &id, const std::string &poster);
 
 // stremio-core types::library::LibraryItem
 struct LibraryItem {
@@ -50,13 +48,31 @@ struct LibraryItem {
 	int minutes_left() const;        // -1 if unknown
 	std::string episode_label() const; // "S1 · E3" for series
 	std::vector<std::string> landscape_images() const { return wide_artwork(id, "", poster); }
-	std::vector<std::string> poster_images() const { return poster_artwork(id, poster); }
+	std::vector<std::string> poster_images() const; // portrait artwork, best first
 };
 
 struct Video {
 	std::string id, title;
 	int64_t released = 0;
+	std::string released_date; // "YYYY-MM-DD"
+	std::string overview;
+	std::string thumbnail;
 	int season = 0, episode = 0;
+};
+
+// External ratings & extended metadata (OMDb / Cinemeta).
+struct RatingsInfo {
+	std::string imdb_rating;     // e.g. "8.4"
+	std::string rotten_tomatoes; // e.g. "92%"
+	std::string metacritic;      // e.g. "79/100"
+	std::string rated;           // e.g. "PG-13", "R", "TV-MA"
+	std::string runtime;         // e.g. "166 min"
+	std::string full_plot;
+	std::string awards;
+	std::string box_office;
+	std::vector<std::string> cast;
+	std::vector<std::string> directors;
+	std::vector<std::string> writers;
 };
 
 // stremio-core MetaItemPreview / MetaItem
@@ -69,12 +85,19 @@ struct MetaItem {
 	std::string direct_video_id() const;
 	static std::string video_label(const Video &v); // "S1 · E3  Title"
 
-	std::string id, type, name, poster, background, release_info, description, default_video_id;
+	std::string id, imdb_id, type, name, poster, background, release_info, description, default_video_id;
+	std::string imdb_rating, rotten_tomatoes, metacritic, rated, runtime, awards, country, box_office;
+	std::vector<std::string> genres;
+	std::vector<std::string> cast;
+	std::vector<std::string> directors;
+	std::vector<std::string> writers;
 	std::vector<Video> videos; // sorted by season, episode
 
 	static MetaItem from_json(const Json &j);
+	void apply_ratings(const RatingsInfo &info);
+	bool involves_person(const std::string &person_name) const;
+	std::string person_role(const std::string &person_name) const;
 	std::vector<std::string> landscape_images() const { return wide_artwork(id, background, poster); }
-	std::vector<std::string> poster_images() const { return poster_artwork(id, poster); }
 };
 
 // Items of a catalog ResourceResponse: {"metas": [...]} or {"metasDetailed": [...]}.
@@ -85,7 +108,7 @@ struct ExtraProp {
 	std::string name;
 	bool is_required = false;
 	int options_limit = 1;
-	std::vector<std::string> options; // e.g. a catalog's genres or years
+	std::vector<std::string> options;
 };
 
 struct Catalog {
@@ -98,14 +121,21 @@ struct Catalog {
 
 // stremio-core Descriptor + the parts of Manifest we use.
 struct Addon {
-	std::string transport_url, id, name;
+	std::string transport_url, id, name, version, description, logo;
 	std::vector<std::string> types;
 	bool has_id_prefixes = false;
 	std::vector<std::string> id_prefixes;
 	Json resources;
 	std::vector<Catalog> catalogs;
+	bool is_protected = false;
+	bool is_official = false;
+	bool configurable = false;
+	bool configuration_required = false;
+	Json raw;
 
 	static Addon from_json(const Json &descriptor);
+	Json to_descriptor_json() const;
+	std::vector<std::string> resource_names() const;
 	bool catalog_resource_supports(const std::string &item_id, const std::string &item_type) const;
 	bool manifest_supports(const std::string &item_id, const std::string &item_type) const;
 	bool is_resource_supported(const std::string &resource, const std::string &item_type, const std::string &item_id) const;
@@ -141,6 +171,7 @@ struct StreamItem {
 	static StreamItem from_json(const Json &j, const std::string &addon);
 	std::string playable_url() const;
 	std::string unsupported_reason() const;
+	bool is_compatible() const;
 
 	// Torrent add-ons (Torrentio, ...) put the swarm's stats in the stream's
 	// text as an emoji-labelled line: "👤 56 💾 859.37 MB ⚙️ YTS". from_json

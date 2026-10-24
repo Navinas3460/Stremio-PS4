@@ -1,6 +1,6 @@
-// Details for one title: description, episode list (series) and the streams
-// for the selected video from all add-ons. Picking a playable stream opens
-// the player (stremio-core MetaDetails).
+// Details for one title: description, ratings (IMDb, Rotten Tomatoes,
+// Metacritic), Cast & Director preview, "See More · Cast & Crew" modal with
+// interactive actor/director search, episode list (series) and streams.
 #pragma once
 
 #include "../core/models.h"
@@ -27,10 +27,20 @@ private:
 		float scroll = 0;
 		std::vector<float> focus; // animated per row
 	};
+	struct PersonChip {
+		std::string name;
+		std::string role; // "Director", "Cast", "Writer"
+		float focus = 0;
+	};
+
 	void on_meta(const MetaItem &meta);
+	void on_ratings(const RatingsInfo &info);
+	void rebuild_people();
 	void load_streams(const std::string &video_id);
 	void play(const StreamItem &stream);
 	void toggle_library();
+	void draw_more_modal(Renderer &r);
+
 	// One row of a list: a title, an optional second line, greyed out if
 	// `muted`.
 	struct ListRow {
@@ -42,6 +52,16 @@ private:
 	};
 	void draw_list(Renderer &r, ListState &list, const std::vector<ListRow> &rows, int active, float x, float y, float w,
 			float h);
+	// Season selector bar & episode preview card (for TV series).
+	bool has_seasons() const { return seasons_.size() > 1; }
+	void rebuild_seasons();
+	void set_season(int idx);
+	void rebuild_season_videos();
+	std::string season_label(int season_num) const;
+	std::vector<float> season_widths();
+	void draw_seasons(Renderer &r, float x, float y, float w);
+	void draw_episode_preview(Renderer &r, const Video &ep, float x, float y, float w, float h);
+
 	// Add-on filter above the streams (a small tab bar): All, then each add-on
 	// in the order they answered. Shown once two or more have streams.
 	bool has_filter() const { return addons_.size() > 1; }
@@ -57,9 +77,26 @@ private:
 
 	bool has_meta_ = false;
 	MetaItem meta_;
+	bool has_ratings_ = false;
+	RatingsInfo ratings_;
 	std::string description_;
 	std::string meta_error_;
 	std::string video_id_;
+
+	// "See More · Cast & Crew" button & modal state
+	bool more_focused_ = false;
+	float more_btn_focus_ = 0.0f;
+	bool more_open_ = false;
+	std::vector<PersonChip> people_;
+	int person_selected_ = 0;
+
+	// Seasons & filtered episodes for the selected season
+	std::vector<int> seasons_;
+	int season_idx_ = 0;
+	std::vector<int> season_videos_; // indices into meta_.videos
+	bool season_focused_ = false;
+	std::vector<float> season_focus_;
+	float season_scroll_ = 0;
 
 	std::vector<StreamItem> streams_;
 	std::vector<std::string> addons_;

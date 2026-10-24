@@ -198,28 +198,23 @@ bool Font::load(const std::string &path, int pixel_size) {
 	return true;
 }
 
-// Empties the atlas. draw() re-adds what it needs, and quads already queued
-// are flushed before the upload.
-void Font::clear_atlas() {
-	const int rows = pen_y_ < ATLAS ? pen_y_ : ATLAS;
-	for (size_t i = 3; i < (size_t)rows * ATLAS * 4; i += 4) pixels_[i] = 0;
-	glyphs_.clear();
-	pen_x_ = pen_y_ = 1;
-	row_height_ = 0;
-	cleared_ = dirty_ = true;
-	generation_++;
-}
-
 void Font::set_size(int pixel_size) {
-	if (pixel_size == size_) return;
+	if (pixel_size <= 0 || pixel_size == size_) return;
 	size_ = pixel_size;
 	for (Face &f : faces_) {
 		if (f.ft) FT_Set_Pixel_Sizes(f.ft, 0, size_);
 		if (f.hb) hb_font_set_scale(f.hb, size_ * 64, size_ * 64);
 	}
+	const int rows = pen_y_ < ATLAS ? pen_y_ : ATLAS;
+	for (size_t i = 3; i < (size_t)rows * ATLAS * 4; i += 4) pixels_[i] = 0;
+	glyphs_.clear();
 	layouts_.clear();
 	wrapped_.clear();
-	clear_atlas();
+	pen_x_ = pen_y_ = 1;
+	row_height_ = 0;
+	cleared_ = true;
+	dirty_ = true;
+	generation_++;
 }
 
 FT_Face Font::face(int index) {
@@ -278,7 +273,15 @@ const Font::Glyph &Font::rasterise(uint32_t key, FT_Face ft, FT_UInt index) {
 			row_height_ = 0;
 		}
 		if (pen_y_ + g.height + 1 >= ATLAS && g.height + 2 < ATLAS) {
-			clear_atlas(); // full: start over
+			// Full: start over with an empty atlas. draw() re-adds what it
+			// needs, and quads already queued are flushed before the upload.
+			const int rows = pen_y_ < ATLAS ? pen_y_ : ATLAS;
+			for (size_t i = 3; i < (size_t)rows * ATLAS * 4; i += 4) pixels_[i] = 0;
+			glyphs_.clear();
+			pen_x_ = pen_y_ = 1;
+			row_height_ = 0;
+			cleared_ = true;
+			generation_++;
 		}
 		if (pen_y_ + g.height + 1 < ATLAS) {
 			for (int y = 0; y < g.height; y++) {

@@ -40,9 +40,9 @@ extern "C" {
 
 namespace {
 
-// Wider frames are scaled down (swscale, slow). 2560 keeps common wide
-// releases (e.g. 2160x1080) on the fast path.
-const int MAX_WIDTH = 2560;
+// Maximum supported video width (1080p Full HD). 4K streams are filtered out
+// and rejected immediately so they never waste time loading on PS4.
+const int MAX_WIDTH = 1920;
 const int TEXTURE_ALIGN = 32; // frame rows are padded to this many pixels (see the converter)
 const size_t MAX_FRAMES = 6;
 const double MAX_QUEUED_AUDIO = 1.0; // seconds
@@ -577,7 +577,7 @@ private:
 			avcodec_parameters_to_context(ctx, fmt->streams[index]->codecpar);
 			ctx->pkt_timebase = fmt->streams[index]->time_base;
 #if defined(STREMIO_PS4)
-			ctx->thread_count = 5; // 6 usable cores; the rest of the app is light
+			ctx->thread_count = 5;
 #else
 			ctx->thread_count = 0;
 #endif
@@ -602,17 +602,17 @@ private:
 		auto on_video = [&]() {
 			const double pts = pts_of(vi);
 			if (pts >= 0 && pts < skip_until - 0.04) return;
+			const AVPixelFormat pf = (AVPixelFormat)frame->format;
+			const bool supported_pf = (pf == AV_PIX_FMT_YUV420P || pf == AV_PIX_FMT_YUVJ420P || pf == AV_PIX_FMT_NV12 ||
+					pf == AV_PIX_FMT_YUV420P10LE);
 			int w = frame->width & ~1, h = frame->height & ~1;
 			if (w > MAX_WIDTH) {
 				h = (int)((int64_t)h * MAX_WIDTH / w) & ~1;
 				w = MAX_WIDTH;
 			}
-			// Common 4:2:0 formats without scaling: our SSE2 converter (swscale
-			// took ~20 ms per 1080p 10-bit frame on PS4).
-			const AVPixelFormat pf = (AVPixelFormat)frame->format;
-			const bool fast = w <= frame->width && (frame->width & ~1) == w &&
-					(pf == AV_PIX_FMT_YUV420P || pf == AV_PIX_FMT_YUVJ420P || pf == AV_PIX_FMT_NV12 ||
-							pf == AV_PIX_FMT_YUV420P10LE);
+			// Common 4:2:0 formats at native size: our SSE2 converter (~4 ms on
+			// PS4 vs ~20 ms for swscale on 10-bit).
+			const bool fast = w <= frame->width && (frame->width & ~1) == w && supported_pf;
 			if (!fast) {
 				sws = sws_getCachedContext(sws, frame->width, frame->height, pf, w, h, AV_PIX_FMT_RGBA, SWS_BILINEAR,
 						nullptr, nullptr, nullptr);
@@ -805,6 +805,10 @@ private:
 				ai = (int)i;
 				break;
 			}
+		}
+		if (vi >= 0 && (fmt->streams[vi]->codecpar->width > 1920 || fmt->streams[vi]->codecpar->height > 1088)) {
+			fail("4K video is not supported (choose a 1080p or 720p stream)");
+			goto done;
 		}
 		if (vi >= 0 && !open_decoder(vi, vdec)) vi = -1;
 		if (ai >= 0 && !open_decoder(ai, adec)) ai = -1;

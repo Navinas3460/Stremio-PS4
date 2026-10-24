@@ -16,13 +16,10 @@ using theme::S;
 const float W = 1920;
 const float MARGIN_X = 120;
 const float VIEW_W = W - 2 * MARGIN_X;
-using namespace poster_grid;
-float title_baseline() { return S(96); }
-float chip_h() { return S(52); }
-float chip_gap() { return S(12); }
-float chips_cy() { return S(78); } // centred on the title
-float grid_top() { return S(150); }
-float view_h() { return tabs::content_bottom() - grid_top(); }
+
+int grid_columns() {
+	return std::clamp((int)std::round(8.0f * theme::DEFAULT_UI_SCALE / theme::ui_scale()), 6, 10);
+}
 
 const char *SORT_LABELS[] = { "Recent", "A\xE2\x80\x93Z", "Most watched" }; // Stremio::LibrarySort order
 
@@ -30,6 +27,16 @@ const char *SORT_LABELS[] = { "Recent", "A\xE2\x80\x93Z", "Most watched" }; // S
 // the screen).
 std::string g_type;
 int g_sort = (int)Stremio::LibrarySort::LAST_WATCHED;
+
+std::string type_label(const std::string &type) {
+	if (type == "movie") return "Movies";
+	if (type == "series") return "Series";
+	if (type == "channel") return "Channels";
+	if (type == "tv") return "TV";
+	std::string label = type;
+	if (!label.empty()) label[0] = (char)toupper((unsigned char)label[0]);
+	return label;
+}
 
 } // namespace
 
@@ -65,18 +72,19 @@ void LibraryScreen::rebuild(bool keep_selection) {
 		if (chips[i].label == focused_chip) chip_ = (int)i;
 	}
 	// Types from the left, after the title; sort orders against the right edge.
+	const float chip_gap = S(12);
 	float x = MARGIN_X + fonts_.page_header.measure("Library") + S(48);
 	for (Chip &c : chips) {
 		c.w = ui::chip_width(fonts_.body, c.label);
 		if (c.sort >= 0) continue;
 		c.x = x;
-		x += c.w + chip_gap();
+		x += c.w + chip_gap;
 	}
 	x = W - MARGIN_X;
 	for (auto it = chips.rbegin(); it != chips.rend() && it->sort >= 0; ++it) {
 		x -= it->w;
 		it->x = x;
-		x -= chip_gap();
+		x -= chip_gap;
 	}
 	chips_.swap(chips);
 
@@ -137,21 +145,22 @@ void LibraryScreen::activate_chip() {
 
 void LibraryScreen::move(int dx, int dy) {
 	const int count = (int)cards_.size();
+	const int cols = grid_columns();
 	switch (zone_) {
 		case FILTERS:
 			chip_ = std::clamp(chip_ + dx, 0, (int)chips_.size() - 1);
 			if (dy > 0) zone_ = count > 0 ? GRID : BAR;
 			break;
 		case GRID: {
-			const int row = selected_ / columns(), last_row = (count - 1) / columns();
+			const int row = selected_ / cols, last_row = (count - 1) / cols;
 			if (dx != 0) { // stays within the row
 				const int target = selected_ + dx;
-				if (target >= 0 && target < count && target / columns() == row) selected_ = target;
+				if (target >= 0 && target < count && target / cols == row) selected_ = target;
 			} else if (dy < 0) {
-				if (row > 0) selected_ -= columns();
+				if (row > 0) selected_ -= cols;
 				else zone_ = FILTERS;
 			} else if (dy > 0) {
-				if (row < last_row) selected_ = std::min(selected_ + columns(), count - 1);
+				if (row < last_row) selected_ = std::min(selected_ + cols, count - 1);
 				else zone_ = BAR;
 			}
 			break;
@@ -183,41 +192,59 @@ void LibraryScreen::update(double dt, uint32_t pressed) {
 		}
 	}
 
+	const int cols = grid_columns();
+	const float gap = S(28), row_gap = S(20);
+	const float card_w = (VIEW_W - (cols - 1) * gap) / cols;
+	const float card_h = card_w * 1.5f;
+	const float cell_h = card_h + POSTER_CAPTION_H;
+	const float pitch = cell_h + row_gap;
+	const float grid_top = S(150);
+	const float view_h = tabs::CONTENT_BOTTOM - grid_top;
+
 	for (int i = 0; i < (int)chips_.size(); i++) {
 		chips_[i].focus = ui::approach(chips_[i].focus, (zone_ == FILTERS && i == chip_) ? 1.0f : 0.0f, dt);
 	}
 	for (int i = 0; i < (int)cards_.size(); i++) {
 		cards_[i].focus = ui::approach(cards_[i].focus, (zone_ == GRID && i == selected_) ? 1.0f : 0.0f, dt);
 	}
-	if (zone_ == GRID) scroll_ = ui::follow(scroll_, (selected_ / columns()) * pitch(), cell_h(), view_h(), dt);
+	if (zone_ == GRID) scroll_ = ui::follow(scroll_, (selected_ / cols) * pitch, cell_h, view_h, dt);
 	bar_.update(dt, zone_ == BAR);
 }
 
 // --- drawing --------------------------------------------------------------------------
 
 void LibraryScreen::draw(Renderer &r) {
+	const int cols = grid_columns();
+	const float gap = S(28), row_gap = S(20);
+	const float card_w = (VIEW_W - (cols - 1) * gap) / cols;
+	const float card_h = card_w * 1.5f;
+	const float cell_h = card_h + POSTER_CAPTION_H;
+	const float pitch = cell_h + row_gap;
+	const float grid_top = S(150);
+	const float chip_h = S(52), chips_cy = S(78);
+
 	if (!status_.empty()) {
-		r.text(fonts_.body, fonts_.body.ellipsize(status_, VIEW_W), MARGIN_X, grid_top() + S(40),
+		r.text(fonts_.body, fonts_.body.ellipsize(status_, VIEW_W), MARGIN_X, grid_top + S(40),
 				status_is_error_ ? theme::ERROR : theme::BASE_CONTENT_MUTED);
 	}
 	// The focused card last, so it overlaps its neighbours.
 	for (int pass = 0; pass < 2; pass++) {
 		for (int i = 0; i < (int)cards_.size(); i++) {
 			if ((pass == 0) == (cards_[i].focus > 0.5f)) continue;
-			const float x = MARGIN_X + (i % columns()) * (card_w() + gap());
-			const float y = grid_top() + (i / columns()) * pitch() - scroll_;
-			if (y > tabs::content_bottom() || y + cell_h() < 0) continue; // off screen: don't load its art
-			draw_poster(r, fonts_, cards_[i], x, y, card_w(), card_h());
+			const float x = MARGIN_X + (i % cols) * (card_w + gap);
+			const float y = grid_top + (i / cols) * pitch - scroll_;
+			if (y > tabs::CONTENT_BOTTOM || y + cell_h < 0) continue; // off screen: don't load its art
+			draw_poster(r, fonts_, cards_[i], x, y, card_w, card_h);
 		}
 	}
 
 	// Header band (covers cards scrolled under it): title and filter chips.
-	r.rect(0, 0, W, grid_top() - S(24), theme::BASE_100);
-	r.text(fonts_.page_header, "Library", MARGIN_X, title_baseline(), theme::BASE_CONTENT);
+	r.rect(0, 0, W, grid_top - S(24), theme::BASE_100);
+	r.text(fonts_.page_header, "Library", MARGIN_X, S(96), theme::BASE_CONTENT);
 	for (int pass = 0; pass < 2; pass++) { // the focused chip last, over its neighbours
 		for (const Chip &c : chips_) {
 			if ((pass == 0) == (c.focus > 0.5f)) continue;
-			ui::chip(r, fonts_.body, c.label, c.x, chips_cy() - chip_h() / 2, c.w, chip_h(), chip_active(c), c.focus);
+			ui::chip(r, fonts_.body, c.label, c.x, chips_cy - chip_h / 2, c.w, chip_h, chip_active(c), c.focus);
 		}
 	}
 

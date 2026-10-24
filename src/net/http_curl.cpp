@@ -51,7 +51,7 @@ Response perform(const Request &request) {
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "StremioPS4/" APP_VERSION);
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "StremioPS4/" APP_VERSION " (https://www.stremio.com; office@stremio.com)");
 	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);

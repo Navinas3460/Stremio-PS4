@@ -53,6 +53,7 @@ add_executable(stremio_ps4
     ${TORRENT_SOURCES}
     src/ui/home_screen.cpp
     src/ui/discover_screen.cpp
+    src/ui/addons_screen.cpp
     src/ui/card.cpp
     src/ui/components.cpp
     src/ui/tab_bar.cpp
