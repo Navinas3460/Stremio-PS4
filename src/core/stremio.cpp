@@ -5,8 +5,10 @@
 #include "../platform/platform.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <memory>
+#include <set>
 
 namespace {
 
@@ -21,6 +23,10 @@ const double LINK_CODE_TTL_SECONDS = 300.0;
 
 std::string session_path() {
 	return platform::data_dir() + "session.json";
+}
+
+std::string local_addons_path() {
+	return platform::data_dir() + "custom_addons.json";
 }
 
 // Parses JSON on the worker thread (libraries can be several MB).
@@ -43,12 +49,124 @@ std::string capitalize(const std::string &s) {
 	return out;
 }
 
-// Content types in the order they're offered: movie and series first, then A-Z.
-void sort_types(std::vector<std::string> &types) {
-	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
-	std::sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
-		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
-	});
+std::string trim(const std::string &s) {
+	const size_t a = s.find_first_not_of(" \t\r\n");
+	if (a == std::string::npos) return "";
+	const size_t b = s.find_last_not_of(" \t\r\n");
+	return s.substr(a, b - a + 1);
+}
+
+std::vector<std::string> split_comma_names(const std::string &s) {
+	std::vector<std::string> out;
+	if (s.empty() || s == "N/A") return out;
+	size_t start = 0;
+	while (start < s.size()) {
+		size_t end = s.find(',', start);
+		if (end == std::string::npos) end = s.size();
+		std::string item = trim(s.substr(start, end - start));
+		// Strip trailing parenthetical notes like "Frank Herbert (novel)"
+		const size_t paren = item.find(" (");
+		if (paren != std::string::npos) item = trim(item.substr(0, paren));
+		if (!item.empty() && item != "N/A" && std::find(out.begin(), out.end(), item) == out.end()) {
+			out.push_back(item);
+		}
+		start = end + 1;
+	}
+	return out;
+}
+
+// Curated popular Stremio community add-ons shown at the top of the Community catalog
+// so users can install essential streaming, rating, catalog, and subtitle add-ons in 1 click.
+Json build_featured_community_addons() {
+	static const char *FEATURED_JSON = R"JSON([
+		{
+			"transportUrl": "https://torrentio.strem.fun/manifest.json",
+			"transportName": "http",
+			"manifest": {
+				"id": "com.stremio.torrentio.addon",
+				"version": "0.0.15",
+				"name": "Torrentio",
+				"description": "Provides torrent streams from scraped torrent providers (YTS, EZTV, RARBG, 1337x, ThePirateBay, KickassTorrents, TorrentGalaxy, MagnetDL, HorribleSubs, NyaaSi).",
+				"logo": "https://torrentio.strem.fun/images/logo_v1.png",
+				"resources": ["stream"],
+				"types": ["movie", "series", "anime"],
+				"idPrefixes": ["tt", "kitsu"]
+			}
+		},
+		{
+			"transportUrl": "https://7a82163c306e-rottentomatoes.baby-beamup.club/manifest.json",
+			"transportName": "http",
+			"manifest": {
+				"id": "org.rottentomatoes",
+				"version": "1.0.2",
+				"name": "Rotten Tomatoes Catalogs",
+				"description": "Certified Fresh and popular movies & TV series curated from Rotten Tomatoes.",
+				"logo": "https://www.rottentomatoes.com/assets/pizza-pie/images/favicon.ico",
+				"resources": ["catalog"],
+				"types": ["movie", "series"],
+				"idPrefixes": ["tt"],
+				"catalogs": [
+					{"type": "movie", "id": "rt-movies-popular", "name": "Rotten Tomatoes Popular"},
+					{"type": "series", "id": "rt-series-popular", "name": "Rotten Tomatoes TV"}
+				]
+			}
+		},
+		{
+			"transportUrl": "https://1fe84bc728af-imdb-catalogs.baby-beamup.club/manifest.json",
+			"transportName": "http",
+			"manifest": {
+				"id": "org.imdbcatalogs",
+				"version": "0.0.5",
+				"name": "IMDb Catalogs",
+				"description": "IMDb Movie and Series lists organized by theme, keywords, and top ratings.",
+				"logo": "https://londonfeministfilmfestival.files.wordpress.com/2017/05/imdb-logo.png",
+				"resources": ["catalog"],
+				"types": ["movie", "series"],
+				"idPrefixes": ["tt"],
+				"catalogs": [
+					{"type": "movie", "id": "imdb-movie-catalog", "name": "IMDb Lists"},
+					{"type": "series", "id": "imdb-series-catalog", "name": "IMDb Lists"}
+				]
+			}
+		},
+		{
+			"transportUrl": "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/manifest.json",
+			"transportName": "http",
+			"manifest": {
+				"id": "pw.ers.netflix-catalog",
+				"version": "1.0.0",
+				"name": "Streaming Catalogs (Netflix, HBO, Disney+, Prime, Apple TV+)",
+				"description": "Trending movies and series from Netflix, HBO Max, Disney+, Amazon Prime Video, and Apple TV+.",
+				"resources": ["catalog"],
+				"types": ["movie", "series"],
+				"idPrefixes": ["tt"],
+				"catalogs": [
+					{"type": "movie", "id": "nfx", "name": "Netflix"},
+					{"type": "series", "id": "nfx", "name": "Netflix"},
+					{"type": "movie", "id": "hbm", "name": "Max"},
+					{"type": "series", "id": "hbm", "name": "Max"},
+					{"type": "movie", "id": "dnp", "name": "Disney+"},
+					{"type": "series", "id": "dnp", "name": "Disney+"},
+					{"type": "movie", "id": "amp", "name": "Prime Video"},
+					{"type": "series", "id": "amp", "name": "Prime Video"}
+				]
+			}
+		},
+		{
+			"transportUrl": "https://opensubtitlesv3-pro.dexter21767.com/manifest.json",
+			"transportName": "http",
+			"manifest": {
+				"id": "org.stremio.opensubtitlesv3pro",
+				"version": "1.1.0",
+				"name": "OpenSubtitles v3 PRO",
+				"description": "Multi-language movie and episode subtitles powered by OpenSubtitles.",
+				"resources": ["subtitles"],
+				"types": ["movie", "series"],
+				"idPrefixes": ["tt"]
+			}
+		}
+	])JSON";
+	return Json::parse(FEATURED_JSON);
 }
 
 } // namespace
@@ -155,9 +273,6 @@ void Stremio::logout() {
 	addons_loaded_ = false;
 	notifications_.clear();
 	board_.clear();
-	discover_ = Discover();
-	discover_opened_ = false;
-	discover_sources_.clear();
 	if (!demo_) platform::remove_file(session_path());
 	demo_ = false;
 	auth_rev++;
@@ -267,7 +382,9 @@ void Stremio::refresh() {
 		library_rev++;
 		addons_.clear();
 		add_extra_addons({ "https://v3-cinemeta.strem.io/manifest.json" }, [this] {
+			load_local_addons();
 			addons_loaded_ = true;
+			addons_rev++;
 			after_sync();
 		});
 		return;
@@ -325,12 +442,14 @@ void Stremio::sync_addons() {
 			for (const Json &d : result["addons"].elements()) {
 				if (d.is_object()) addons_.push_back(Addon::from_json(d));
 			}
+			load_local_addons();
 			addons_error_.clear();
 			platform::log("add-ons: %zu", addons_.size());
 		}
 		auto done = [this, gen] {
 			if (gen != gen_) return;
 			addons_loaded_ = true;
+			addons_rev++;
 			after_sync();
 		};
 #if defined(STREMIO_DEV)
@@ -339,6 +458,177 @@ void Stremio::sync_addons() {
 		done();
 #endif
 	});
+}
+
+void Stremio::load_local_addons() {
+	std::string text;
+	if (!platform::read_file(local_addons_path(), text)) return;
+	Json arr = Json::parse(text);
+	if (!arr.is_array()) return;
+	for (const Json &d : arr.elements()) {
+		if (!d.is_object()) continue;
+		Addon a = Addon::from_json(d);
+		if (!a.id.empty() && !is_addon_installed(a)) {
+			addons_.push_back(a);
+		}
+	}
+}
+
+void Stremio::save_local_addons() {
+	Json arr = Json::array();
+	for (const Addon &a : addons_) {
+		arr.push(a.to_descriptor_json());
+	}
+	platform::write_file(local_addons_path(), arr.dump());
+}
+
+void Stremio::push_addons(AddonActionCallback cb) {
+	save_local_addons();
+	if (demo_ || !logged_in()) {
+		if (cb) cb(true, "");
+		return;
+	}
+	Json arr = Json::array();
+	for (const Addon &a : addons_) {
+		arr.push(a.to_descriptor_json());
+	}
+	Json body = Json::object();
+	body.set("type", "AddonCollectionSet").set("authKey", auth_key_).set("addons", arr);
+	call_api("addonCollectionSet", body, [cb](bool ok, const Json &, const std::string &error) {
+		if (!ok) platform::log("addonCollectionSet failed: %s", error.c_str());
+		if (cb) cb(ok, error);
+	});
+}
+
+bool Stremio::is_addon_installed(const Addon &addon) const {
+	for (const Addon &a : addons_) {
+		if (!addon.id.empty() && a.id == addon.id) return true;
+		if (!addon.transport_url.empty() && a.transport_url == addon.transport_url) return true;
+	}
+	return false;
+}
+
+void Stremio::install_addon(const Addon &addon, AddonActionCallback cb) {
+	if (is_addon_installed(addon)) {
+		if (cb) cb(false, addon.name + " is already installed");
+		return;
+	}
+	// If the community catalog descriptor only had a partial manifest, fetch the live manifest first
+	if (!addon.transport_url.empty() && addon.resources.elements().empty() && addon.catalogs.empty()) {
+		install_addon_url(addon.transport_url, cb);
+		return;
+	}
+	addons_.push_back(addon);
+	addons_rev++;
+	load_board();
+	push_addons([addon, cb](bool ok, const std::string &err) {
+		if (cb) cb(true, ok ? ("Installed " + addon.name) : ("Installed " + addon.name + " (local; account sync: " + err + ")"));
+	});
+}
+
+void Stremio::install_addon_url(const std::string &manifest_url, AddonActionCallback cb) {
+	std::string url = trim(manifest_url);
+	if (url.rfind("stremio://", 0) == 0) {
+		url = "https://" + url.substr(10);
+	}
+	if (url.empty()) {
+		if (cb) cb(false, "Enter a manifest.json URL");
+		return;
+	}
+	const int gen = gen_;
+	fetch_json(url, [this, gen, url, cb](bool ok, const Json &manifest, const std::string &error) {
+		if (gen != gen_) return;
+		if (!ok || !manifest.is_object() || !manifest["id"].is_string()) {
+			if (cb) cb(false, "Couldn't load add-on manifest: " + (error.empty() ? "invalid manifest.json" : error));
+			return;
+		}
+		Json d = Json::object();
+		d.set("transportUrl", url).set("transportName", "http").set("manifest", manifest);
+		Json flags = Json::object();
+		flags.set("official", false).set("protected", false);
+		d.set("flags", flags);
+		Addon addon = Addon::from_json(d);
+		if (is_addon_installed(addon)) {
+			if (cb) cb(false, addon.name + " is already installed");
+			return;
+		}
+		addons_.push_back(addon);
+		addons_rev++;
+		load_board();
+		push_addons([addon, cb](bool ok2, const std::string &) {
+			if (cb) cb(true, ok2 ? ("Installed " + addon.name) : ("Installed " + addon.name));
+		});
+	});
+}
+
+void Stremio::uninstall_addon(const Addon &addon, AddonActionCallback cb) {
+	if (addon.is_protected || addon.id == "com.linvo.cinemeta") {
+		if (cb) cb(false, addon.name + " is a protected core add-on and cannot be removed");
+		return;
+	}
+	auto it = std::remove_if(addons_.begin(), addons_.end(), [&](const Addon &a) {
+		return (!addon.id.empty() && a.id == addon.id) || (!addon.transport_url.empty() && a.transport_url == addon.transport_url);
+	});
+	if (it == addons_.end()) {
+		if (cb) cb(false, addon.name + " is not installed");
+		return;
+	}
+	addons_.erase(it, addons_.end());
+	addons_rev++;
+	load_board();
+	push_addons([addon, cb](bool, const std::string &) {
+		if (cb) cb(true, "Uninstalled " + addon.name);
+	});
+}
+
+void Stremio::fetch_community_addons() {
+	if (community_addons_loading_) return;
+	community_addons_loading_ = true;
+	community_addons_error_.clear();
+	const int gen = gen_;
+
+	auto merge_list = [this](const Json &arr) {
+		for (const Json &d : arr.elements()) {
+			if (!d.is_object()) continue;
+			Addon a = Addon::from_json(d);
+			if (a.id.empty() || a.transport_url.empty()) continue;
+			bool exists = false;
+			for (const Addon &existing : community_addons_) {
+				if (existing.id == a.id || existing.transport_url == a.transport_url) {
+					exists = true;
+					break;
+				}
+			}
+			if (!exists) community_addons_.push_back(std::move(a));
+		}
+	};
+
+	if (community_addons_.empty()) {
+		merge_list(build_featured_community_addons());
+		community_addons_rev++;
+	}
+
+	auto remaining = std::make_shared<int>(2);
+	const char *urls[2] = {
+		"https://v3-cinemeta.strem.io/addon_catalog/all/community.json",
+		"https://v3-cinemeta.strem.io/addon_catalog/all/official.json"
+	};
+	for (int i = 0; i < 2; i++) {
+		fetch_json(urls[i], [this, gen, remaining, merge_list](bool ok, const Json &json, const std::string &error) {
+			if (gen != gen_) return;
+			if (ok && json["addons"].is_array()) {
+				merge_list(json["addons"]);
+			} else if (!ok && community_addons_error_.empty()) {
+				community_addons_error_ = error;
+			}
+			if (--*remaining == 0) {
+				community_addons_loading_ = false;
+				community_addons_loaded_ = true;
+				community_addons_rev++;
+				platform::log("community add-ons loaded: %zu", community_addons_.size());
+			}
+		});
+	}
 }
 
 #if defined(STREMIO_DEV)
@@ -388,7 +678,6 @@ void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void
 void Stremio::after_sync() {
 	if (--pending_syncs_ > 0) return;
 	load_board();
-	discover_rebuild();
 	pull_notifications();
 }
 
@@ -415,6 +704,20 @@ std::vector<const LibraryItem *> Stremio::continue_watching() const {
 	std::sort(items.begin(), items.end(), [this](const LibraryItem *a, const LibraryItem *b) { return cw_time(*a) > cw_time(*b); });
 	if (items.size() > CATALOG_PREVIEW_SIZE) items.resize(CATALOG_PREVIEW_SIZE);
 	return items;
+}
+
+void Stremio::dismiss_from_continue_watching(const std::string &id) {
+	auto it = library_.find(id);
+	if (it == library_.end()) return;
+	LibraryItem item = it->second;
+	item.time_offset = 0;
+	if (item.temp) {
+		item.removed = true;
+		item.temp = false;
+	}
+	notifications_.erase(id);
+	notifications_rev++;
+	push_library_item(item);
 }
 
 // --- Notifications: port of models/ctx/update_notifications.rs -------------------------
@@ -495,6 +798,7 @@ void Stremio::load_board() {
 	board_.clear();
 	for (const Addon &addon : addons_) {
 		for (const Catalog &cat : addon.catalogs) {
+			if (cat.type == "tv" || cat.type == "channel") continue;
 			if (!cat.are_extra_names_supported({})) continue;
 			const std::string url = addon.resource_url("catalog", cat.type, cat.id);
 			if (url.empty()) continue;
@@ -509,25 +813,250 @@ void Stremio::load_board() {
 	fetch_rows(board_, board_rev, [this, gen] { return gen == gen_; });
 }
 
-void Stremio::fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current) {
+void Stremio::fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current,
+		const std::string &person_filter) {
 	for (size_t i = 0; i < rows.size(); i++) {
-		fetch_json(rows[i].url, [&rows, &rev, current, i](bool ok, const Json &json, const std::string &error) {
-			if (!current() || i >= rows.size()) return;
-			BoardRow &row = rows[i];
-			row.loading = false;
+		if (rows[i].url.empty()) continue;
+		const std::string row_url = rows[i].url;
+		fetch_json(row_url, [&rows, &rev, current, row_url, person_filter](bool ok, const Json &json, const std::string &error) {
+			if (!current()) return;
+			// Find row by URL (since person filmography rows may be inserted at the front)
+			BoardRow *target = nullptr;
+			for (BoardRow &r : rows) {
+				if (r.url == row_url) {
+					target = &r;
+					break;
+				}
+			}
+			if (!target) return;
+			target->loading = false;
 			std::vector<MetaItem> metas;
 			if (ok && metas_from_response(json, metas)) {
+				if (!person_filter.empty()) {
+					std::vector<MetaItem> filtered;
+					for (MetaItem &m : metas) {
+						if (m.involves_person(person_filter)) {
+							const std::string role = m.person_role(person_filter);
+							if (!role.empty()) {
+								m.release_info = m.release_info.empty() ? role : (m.release_info + " \xC2\xB7 " + role);
+							}
+							filtered.push_back(std::move(m));
+						}
+					}
+					metas = std::move(filtered);
+				}
 				if (metas.size() > BOARD_ROW_SIZE) metas.resize(BOARD_ROW_SIZE);
-				row.items = std::move(metas);
+				target->items = std::move(metas);
 			} else {
-				row.error = ok ? "unexpected catalog response" : error;
+				target->error = ok ? "unexpected catalog response" : error;
 			}
 			rev++;
 		});
 	}
 }
 
-// --- Search (models/catalogs_with_extra.rs) ---------------------------------------------
+// --- Discover (models/catalog_with_filters.rs) ------------------------------------------
+
+namespace {
+
+// A catalog belongs in Discover when it either needs no extras, or its only
+// required extra is a filter with selectable options (e.g. Cinemeta's "Year"
+// catalog, where `genre` is required and holds the list of years).
+bool is_discover_catalog(const Addon &addon, const Catalog &cat, DiscoverCatalog &out) {
+	if (cat.type.empty() || cat.type == "tv" || cat.type == "channel" || addon.resource_url("catalog", cat.type, cat.id).empty()) return false;
+	std::string filter_name;
+	bool filter_required = false;
+	std::vector<std::string> filter_options;
+	for (const ExtraProp &e : cat.extra) {
+		if (e.name == "search" || e.name == "lastVideosIds" || e.name == "calendarVideosIds") {
+			if (e.is_required) return false;
+			continue;
+		}
+		if (e.name == "skip") {
+			if (e.is_required) return false;
+			continue;
+		}
+		if (!e.options.empty() && filter_name.empty()) {
+			filter_name = e.name;
+			filter_required = e.is_required;
+			filter_options = e.options;
+		} else if (e.is_required) {
+			return false;
+		}
+	}
+	out = DiscoverCatalog();
+	out.addon_id = addon.id;
+	out.addon_name = addon.name;
+	out.type = cat.type;
+	out.id = cat.id;
+	out.name = cat.name.empty() ? (addon.name.empty() ? cat.id : addon.name) : cat.name;
+	out.filter_name = filter_name;
+	out.filter_required = filter_required;
+	out.filter_options = std::move(filter_options);
+	out.supports_skip = cat.extra_prop("skip") != nullptr;
+	return true;
+}
+
+} // namespace
+
+std::vector<std::string> Stremio::discover_types() const {
+	std::vector<std::string> types;
+	for (const Addon &addon : addons_) {
+		for (const Catalog &cat : addon.catalogs) {
+			DiscoverCatalog dc;
+			if (!is_discover_catalog(addon, cat, dc)) continue;
+			if (std::find(types.begin(), types.end(), dc.type) == types.end()) types.push_back(dc.type);
+		}
+	}
+	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
+	std::stable_sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
+		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
+	});
+	return types;
+}
+
+std::vector<DiscoverCatalog> Stremio::discover_catalogs(const std::string &type) const {
+	std::vector<DiscoverCatalog> out;
+	for (const Addon &addon : addons_) {
+		for (const Catalog &cat : addon.catalogs) {
+			if (!type.empty() && cat.type != type) continue;
+			DiscoverCatalog dc;
+			if (is_discover_catalog(addon, cat, dc)) out.push_back(std::move(dc));
+		}
+	}
+	if (type == "movie" || type == "series") {
+		struct BuiltinSource {
+			const char *id;
+			const char *name;
+		};
+		static const BuiltinSource SOURCES[] = {
+			{ "atp", "Apple TV+" },
+			{ "dnp", "Disney+" },
+			{ "hbm", "HBO Max" },
+			{ "hlu", "Hulu" },
+			{ "nfx", "Netflix" },
+			{ "pmp", "Paramount+" },
+			{ "pcp", "Peacock" },
+			{ "amp", "Prime Video" },
+		};
+		static const std::vector<std::string> DEFAULT_GENRES = {
+			"Action", "Adventure", "Animation", "Biography", "Comedy", "Crime",
+			"Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+			"Music", "Mystery", "Romance", "Sci-Fi", "Sport", "Thriller", "War", "Western"
+		};
+		for (const BuiltinSource &src : SOURCES) {
+			bool already = false;
+			for (const DiscoverCatalog &existing : out) {
+				if (existing.id == src.id || existing.name == src.name ||
+						( std::string(src.id) == "hbm" && existing.name == "Max")) {
+					already = true;
+					break;
+				}
+			}
+			if (!already) {
+				DiscoverCatalog dc;
+				dc.addon_id = "builtin.streaming";
+				dc.addon_name = "Streaming Catalogs";
+				dc.type = type;
+				dc.id = src.id;
+				dc.name = src.name;
+				dc.filter_name = ""; // filtered client-side when a genre is chosen
+				dc.filter_required = false;
+				dc.filter_options = DEFAULT_GENRES;
+				dc.supports_skip = true;
+				out.push_back(std::move(dc));
+			}
+		}
+	}
+	return out;
+}
+
+void Stremio::fetch_discover(const DiscoverCatalog &cat, const std::string &filter_value, int skip, DiscoverCallback cb) {
+	std::string url;
+	const bool client_genre_filter = (cat.filter_name.empty() && !filter_value.empty());
+	if (cat.addon_id == "builtin.streaming") {
+		url = "https://7a82163c306e-stremio-netflix-catalog-addon.baby-beamup.club/catalog/" + cat.type + "/" + cat.id;
+		if (skip > 0 && cat.supports_skip) {
+			url += "/skip=" + std::to_string(skip);
+		}
+		url += ".json";
+	} else {
+		const Addon *matched = nullptr;
+		for (const Addon &addon : addons_) {
+			if (addon.id == cat.addon_id && !addon.resource_url("catalog", cat.type, cat.id).empty()) {
+				matched = &addon;
+				break;
+			}
+		}
+		if (!matched) {
+			std::vector<MetaItem> empty;
+			cb(false, empty, "Add-on not available");
+			return;
+		}
+		std::vector<std::pair<std::string, std::string>> extra;
+		if (!cat.filter_name.empty() && !filter_value.empty()) {
+			extra.push_back({ cat.filter_name, filter_value });
+		} else if (cat.filter_required && !cat.filter_options.empty()) {
+			extra.push_back({ cat.filter_name, cat.filter_options[0] });
+		}
+		if (skip > 0 && cat.supports_skip) {
+			extra.push_back({ "skip", std::to_string(skip) });
+		}
+		url = matched->resource_url("catalog", cat.type, cat.id, extra);
+	}
+	if (url.empty()) {
+		std::vector<MetaItem> empty;
+		cb(false, empty, "Unsupported catalog URL");
+		return;
+	}
+	const int gen = gen_;
+	fetch_json(url, [this, gen, cb, client_genre_filter, filter_value](bool ok, const Json &json, const std::string &error) {
+		if (gen != gen_) return;
+		std::vector<MetaItem> metas;
+		if (ok && metas_from_response(json, metas)) {
+			if (client_genre_filter && !filter_value.empty()) {
+				std::string want = filter_value;
+				for (char &c : want) c = (char)tolower((unsigned char)c);
+				std::vector<MetaItem> filtered;
+				for (MetaItem &m : metas) {
+					bool match = false;
+					for (const std::string &g : m.genres) {
+						std::string gl = g;
+						for (char &c : gl) c = (char)tolower((unsigned char)c);
+						if (gl.find(want) != std::string::npos || want.find(gl) != std::string::npos) {
+							match = true;
+							break;
+						}
+					}
+					if (match) filtered.push_back(std::move(m));
+				}
+				// If items had genre tags, use filtered list; if catalog omitted genre tags on preview items, keep all
+				if (!filtered.empty()) metas = std::move(filtered);
+			}
+			cb(true, metas, "");
+		} else {
+			cb(false, metas, ok ? "unexpected catalog response" : error);
+		}
+	});
+}
+
+// --- Search & Actor / Director Filmography --------------------------------------
+
+void Stremio::set_search_person_only(bool person_only) {
+	if (search_person_only_ == person_only) return;
+	search_person_only_ = person_only;
+	if (!search_query_.empty()) {
+		const std::string q = search_query_;
+		search_query_.clear();
+		search(q);
+	}
+}
+
+void Stremio::search_person(const std::string &person_name) {
+	search_person_only_ = true;
+	search_query_.clear();
+	search(person_name);
+}
 
 void Stremio::search(const std::string &query) {
 	search_query_ = query;
@@ -535,8 +1064,13 @@ void Stremio::search(const std::string &query) {
 	const int gen = ++search_gen_;
 	search_rev++;
 	if (query.empty()) return;
+
+	// Always run actor/director filmography lookup in parallel
+	fetch_person_filmography(query, gen);
+
 	for (const Addon &addon : addons_) {
 		for (const Catalog &cat : addon.catalogs) {
+			if (cat.type == "tv" || cat.type == "channel") continue;
 			if (!cat.are_extra_names_supported({ "search" })) continue;
 			const std::string url = addon.resource_url("catalog", cat.type, cat.id, { { "search", query } });
 			if (url.empty()) continue;
@@ -546,176 +1080,159 @@ void Stremio::search(const std::string &query) {
 			search_.push_back(row);
 		}
 	}
-	fetch_rows(search_, search_rev, [this, gen] { return gen == search_gen_; });
+	fetch_rows(search_, search_rev, [this, gen] { return gen == search_gen_; },
+			search_person_only_ ? query : "");
 }
 
-// --- Discover (models/catalog_with_filters.rs) ------------------------------------------
+void Stremio::fetch_person_filmography(const std::string &query, int gen) {
+	const std::string trimmed = trim(query);
+	if (trimmed.size() < 2) return;
 
-namespace {
+	const std::string sg_url = "https://v3.sg.media-imdb.com/suggestion/x/" + uri_encode(trimmed) + ".json";
+	fetch_json(sg_url, [this, gen, trimmed](bool ok, const Json &sg, const std::string &) {
+		if (gen != search_gen_ || !ok || !sg["d"].is_array()) return;
 
-const size_t DISCOVER_MAX_ITEMS = 1000;
-
-// Discover can show a catalog when each extra it requires has options to
-// pick from (stremio-core: the catalog supports its default required extra).
-bool discoverable(const Addon &addon, const Catalog &cat) {
-	for (const ExtraProp &e : cat.extra) {
-		if (e.is_required && e.options.empty()) return false;
-	}
-	return !addon.resource_url("catalog", cat.type, cat.id).empty();
-}
-
-// The extra offered as Discover's filter row: the first one with options.
-const ExtraProp *discover_filter(const Catalog &cat) {
-	for (const ExtraProp &e : cat.extra) {
-		if (!e.options.empty()) return &e;
-	}
-	return nullptr;
-}
-
-} // namespace
-
-void Stremio::discover_open() {
-	if (discover_opened_) return;
-	discover_opened_ = true;
-	discover_rebuild();
-}
-
-std::string Stremio::discover_catalog_key() const {
-	if (discover_.catalog >= (int)discover_sources_.size()) return "";
-	const auto &src = discover_sources_[discover_.catalog];
-	if (src.first >= addons_.size() || src.second >= addons_[src.first].catalogs.size()) return "";
-	const Addon &addon = addons_[src.first];
-	const Catalog &cat = addon.catalogs[src.second];
-	return addon.transport_url + " " + cat.type + " " + cat.id;
-}
-
-// The type's catalogs (the one matching `catalog_key` selected, if any) and
-// the selected catalog's filter options.
-void Stremio::discover_lists(const std::string &catalog_key) {
-	Discover &d = discover_;
-	discover_sources_.clear();
-	std::vector<std::string> names;
-	for (size_t a = 0; a < addons_.size(); a++) {
-		for (size_t c = 0; c < addons_[a].catalogs.size(); c++) {
-			const Catalog &cat = addons_[a].catalogs[c];
-			if (cat.type != d.type || !discoverable(addons_[a], cat)) continue;
-			discover_sources_.push_back({ a, c });
-			names.push_back(cat.name.empty() ? cat.id : cat.name);
-		}
-	}
-	// Two add-ons' "Popular": name the add-on.
-	d.catalogs.clear();
-	for (size_t i = 0; i < names.size(); i++) {
-		const bool shared = std::count(names.begin(), names.end(), names[i]) > 1;
-		d.catalogs.push_back(shared ? names[i] + " (" + addons_[discover_sources_[i].first].name + ")" : names[i]);
-	}
-	d.catalog = std::clamp(d.catalog, 0, std::max(0, (int)d.catalogs.size() - 1));
-	for (int i = 0; i < (int)discover_sources_.size(); i++) {
-		const Addon &addon = addons_[discover_sources_[i].first];
-		const Catalog &cat = addon.catalogs[discover_sources_[i].second];
-		if (addon.transport_url + " " + cat.type + " " + cat.id == catalog_key) d.catalog = i;
-	}
-
-	// "All" (unless the filter is required), then the options.
-	d.filter_options.clear();
-	if (!discover_sources_.empty()) {
-		const Catalog &cat = addons_[discover_sources_[d.catalog].first].catalogs[discover_sources_[d.catalog].second];
-		if (const ExtraProp *f = discover_filter(cat)) {
-			if (!f->is_required) d.filter_options.push_back("");
-			d.filter_options.insert(d.filter_options.end(), f->options.begin(), f->options.end());
-		}
-	}
-	if (std::find(d.filter_options.begin(), d.filter_options.end(), d.filter) == d.filter_options.end()) {
-		d.filter = d.filter_options.empty() ? "" : d.filter_options[0];
-	}
-}
-
-// After an add-on sync: the lists again, reloading only if the selected
-// catalog or filter is gone.
-void Stremio::discover_rebuild() {
-	if (!discover_opened_) return;
-	Discover &d = discover_;
-	const std::string key = discover_catalog_key(), filter = d.filter;
-	d.types.clear();
-	for (const Addon &addon : addons_) {
-		for (const Catalog &cat : addon.catalogs) {
-			if (discoverable(addon, cat) && std::find(d.types.begin(), d.types.end(), cat.type) == d.types.end()) {
-				d.types.push_back(cat.type);
+		std::string nm_id, person_name;
+		for (const Json &entry : sg["d"].elements()) {
+			const std::string id = entry["id"].as_string("");
+			if (id.compare(0, 2, "nm") == 0) {
+				nm_id = id;
+				person_name = entry["l"].as_string(trimmed);
+				break;
 			}
 		}
-	}
-	sort_types(d.types);
-	if (std::find(d.types.begin(), d.types.end(), d.type) == d.types.end()) {
-		d.type = d.types.empty() ? "" : d.types[0];
-	}
-	discover_lists(key);
-	if (discover_catalog_key() != key || d.filter != filter || (d.items.empty() && !d.loading)) {
-		d.items.clear();
-		discover_fetch(false);
-	}
-	discover_rev++;
-}
+		if (nm_id.empty()) return;
 
-void Stremio::discover_select(const std::string &type, int catalog, const std::string &filter) {
-	Discover &d = discover_;
-	d.type = type;
-	d.catalog = catalog;
-	d.filter = filter;
-	discover_lists("");
-	d.items.clear();
-	discover_fetch(false);
-}
+		const std::string wd_url = "https://www.wikidata.org/w/api.php?action=query&list=search&format=json&srsearch=haswbstatement:P345=" + uri_encode(nm_id);
+		fetch_json(wd_url, [this, gen, person_name](bool ok2, const Json &wd, const std::string &) {
+			if (gen != search_gen_ || !ok2) return;
+			const auto &search_arr = wd["query"]["search"].elements();
+			if (search_arr.empty()) return;
+			const std::string qid = search_arr[0]["title"].as_string("");
+			if (qid.empty() || qid[0] != 'Q') return;
 
-void Stremio::discover_load_more() {
-	if (!discover_.loading && discover_.has_more) discover_fetch(true);
-}
+			const std::string sparql =
+				"SELECT ?imdb ?workLabel (YEAR(?date) AS ?year) ?prop ?sitelinks ?type WHERE { "
+				"VALUES ?prop { wdt:P161 wdt:P57 wdt:P58 wdt:P162 } "
+				"?work ?prop wd:" + qid + "; wdt:P345 ?imdb. "
+				"FILTER(STRSTARTS(?imdb, \"tt\")) "
+				"OPTIONAL { ?work wdt:P577 ?date } "
+				"OPTIONAL { ?work wikibase:sitelinks ?sitelinks } "
+				"OPTIONAL { ?work wdt:P31 ?type } "
+				"SERVICE wikibase:label { bd:serviceParam wikibase:language \"en\". } "
+				"}";
+			const std::string sp_url = "https://query.wikidata.org/sparql?format=json&query=" + uri_encode(sparql);
+			fetch_json(sp_url, [this, gen, person_name](bool ok3, const Json &sp, const std::string &) {
+				if (gen != search_gen_ || !ok3 || !sp["results"]["bindings"].is_array()) return;
 
-void Stremio::discover_fetch(bool next_page) {
-	Discover &d = discover_;
-	const int gen = ++discover_gen_, session = gen_;
-	d.error.clear();
-	d.has_more = false;
-	d.loading = false;
-	discover_rev++;
-	const std::string key = discover_catalog_key();
-	if (key.empty()) return; // no catalogs (yet)
-	const Addon &addon = addons_[discover_sources_[d.catalog].first];
-	const Catalog &cat = addon.catalogs[discover_sources_[d.catalog].second];
-	const ExtraProp *filter = discover_filter(cat);
-	std::vector<std::pair<std::string, std::string>> extra;
-	for (const ExtraProp &e : cat.extra) {
-		if (filter && e.name == filter->name) {
-			if (!d.filter.empty()) extra.push_back({ e.name, d.filter });
-		} else if (e.is_required) {
-			extra.push_back({ e.name, e.options[0] });
-		}
-	}
-	if (next_page) extra.push_back({ "skip", std::to_string(d.items.size()) });
-	const bool pages = cat.extra_prop("skip") != nullptr;
-	d.loading = true;
-	fetch_json(addon.resource_url("catalog", cat.type, cat.id, extra),
-			[this, gen, session, pages](bool ok, const Json &json, const std::string &error) {
-				if (gen != discover_gen_ || session != gen_) return;
-				Discover &d = discover_;
-				d.loading = false;
-				std::vector<MetaItem> metas;
-				if (ok && metas_from_response(json, metas)) {
-					size_t added = 0;
-					for (MetaItem &m : metas) { // pages can repeat titles
-						if (d.items.size() >= DISCOVER_MAX_ITEMS) break;
-						if (std::any_of(d.items.begin(), d.items.end(), [&](const MetaItem &i) { return i.id == m.id; })) continue;
-						d.items.push_back(std::move(m));
-						added++;
+				struct WorkEntry {
+					std::string imdb;
+					std::string title;
+					std::string year;
+					int sitelinks = 0;
+					bool is_series = false;
+					bool acted = false;
+					bool directed = false;
+					bool wrote = false;
+					bool produced = false;
+				};
+				std::map<std::string, WorkEntry> works;
+
+				for (const Json &b : sp["results"]["bindings"].elements()) {
+					const std::string tt = b["imdb"]["value"].as_string("");
+					if (tt.compare(0, 2, "tt") != 0) continue;
+					WorkEntry &w = works[tt];
+					w.imdb = tt;
+					const std::string lbl = b["workLabel"]["value"].as_string("");
+					if (!lbl.empty() && (w.title.empty() || w.title == tt)) w.title = lbl;
+					const std::string yr = b["year"]["value"].as_string("");
+					if (!yr.empty() && (w.year.empty() || yr < w.year)) w.year = yr;
+					const int sl = atoi(b["sitelinks"]["value"].as_string("0").c_str());
+					if (sl > w.sitelinks) w.sitelinks = sl;
+					const std::string type_uri = b["type"]["value"].as_string("");
+					if (type_uri.find("Q5398426") != std::string::npos ||
+						type_uri.find("Q1259759") != std::string::npos ||
+						type_uri.find("Q581714") != std::string::npos) {
+						w.is_series = true;
 					}
-					d.has_more = pages && added > 0 && d.items.size() < DISCOVER_MAX_ITEMS;
-				} else {
-					d.error = ok ? "unexpected catalog response" : error;
+					const std::string prop = b["prop"]["value"].as_string("");
+					if (prop.rfind("P161") != std::string::npos) w.acted = true;
+					else if (prop.rfind("P57") != std::string::npos) w.directed = true;
+					else if (prop.rfind("P58") != std::string::npos) w.wrote = true;
+					else if (prop.rfind("P162") != std::string::npos) w.produced = true;
 				}
-				discover_rev++;
+
+				std::vector<WorkEntry> sorted;
+				sorted.reserve(works.size());
+				for (auto &kv : works) {
+					// Skip untranslated Q-ID labels
+					if (kv.second.title.empty() || (kv.second.title[0] == 'Q' && kv.second.title.size() > 1 && isdigit((unsigned char)kv.second.title[1]))) {
+						continue;
+					}
+					sorted.push_back(std::move(kv.second));
+				}
+				std::sort(sorted.begin(), sorted.end(), [](const WorkEntry &a, const WorkEntry &b) {
+					if (a.sitelinks != b.sitelinks) return a.sitelinks > b.sitelinks;
+					return a.year > b.year;
+				});
+
+				BoardRow acted_row;
+				acted_row.title = person_name + " \xE2\x80\x94 Acted In";
+				acted_row.loading = false;
+				acted_row.is_person_row = true;
+
+				BoardRow crew_row;
+				crew_row.title = person_name + " \xE2\x80\x94 Directed & Written";
+				crew_row.loading = false;
+				crew_row.is_person_row = true;
+
+				for (const WorkEntry &w : sorted) {
+					MetaItem m;
+					m.id = w.imdb;
+					m.imdb_id = w.imdb;
+					m.name = w.title;
+					m.type = w.is_series ? "series" : "movie";
+					m.poster = "https://images.metahub.space/poster/medium/" + w.imdb + "/img";
+					m.background = "https://images.metahub.space/background/medium/" + w.imdb + "/img";
+
+					if (w.acted && acted_row.items.size() < 40) {
+						MetaItem ma = m;
+						ma.release_info = w.year.empty() ? "Cast" : (w.year + " \xC2\xB7 Cast");
+						ma.cast.push_back(person_name);
+						acted_row.items.push_back(std::move(ma));
+					}
+					if ((w.directed || w.wrote || w.produced) && crew_row.items.size() < 40) {
+						MetaItem mc = m;
+						std::string role;
+						if (w.directed) role = "Director";
+						if (w.wrote) role += (role.empty() ? "" : ", ") + std::string("Writer");
+						if (w.produced && role.empty()) role = "Producer";
+						mc.release_info = w.year.empty() ? role : (w.year + " \xC2\xB7 " + role);
+						if (w.directed) mc.directors.push_back(person_name);
+						if (w.wrote) mc.writers.push_back(person_name);
+						crew_row.items.push_back(std::move(mc));
+					}
+				}
+
+				// Insert person rows at the top of search_
+				std::vector<BoardRow> top_rows;
+				if (!crew_row.items.empty() && crew_row.items.size() >= acted_row.items.size()) {
+					top_rows.push_back(std::move(crew_row));
+					if (!acted_row.items.empty()) top_rows.push_back(std::move(acted_row));
+				} else {
+					if (!acted_row.items.empty()) top_rows.push_back(std::move(acted_row));
+					if (!crew_row.items.empty()) top_rows.push_back(std::move(crew_row));
+				}
+				if (!top_rows.empty()) {
+					search_.insert(search_.begin(), top_rows.begin(), top_rows.end());
+					search_rev++;
+				}
 			});
+		});
+	});
 }
 
-// --- Meta details & streams (models/meta_details.rs) -----------------------------------
+// --- Meta details, ratings & streams (models/meta_details.rs) --------------------------
 
 const LibraryItem *Stremio::library_item(const std::string &id) const {
 	auto it = library_.find(id);
@@ -725,7 +1242,10 @@ const LibraryItem *Stremio::library_item(const std::string &id) const {
 std::vector<const LibraryItem *> Stremio::library(const std::string &type, LibrarySort sort) const {
 	std::vector<const LibraryItem *> items;
 	for (const auto &kv : library_) {
-		if (!kv.second.removed && (type.empty() || kv.second.type == type)) items.push_back(&kv.second);
+		if (!kv.second.removed && !kv.second.is_live() && kv.second.type != "tv" && kv.second.type != "channel" &&
+				(type.empty() || kv.second.type == type)) {
+			items.push_back(&kv.second);
+		}
 	}
 	auto lower = [](std::string s) {
 		for (char &c : s) c = (char)tolower((unsigned char)c);
@@ -753,11 +1273,15 @@ std::vector<std::string> Stremio::library_types() const {
 	std::vector<std::string> types;
 	for (const auto &kv : library_) {
 		const LibraryItem &item = kv.second;
-		if (!item.removed && !item.type.empty() && std::find(types.begin(), types.end(), item.type) == types.end()) {
+		if (!item.removed && !item.is_live() && !item.type.empty() && item.type != "tv" && item.type != "channel" &&
+				std::find(types.begin(), types.end(), item.type) == types.end()) {
 			types.push_back(item.type);
 		}
 	}
-	sort_types(types);
+	auto rank = [](const std::string &t) { return t == "movie" ? 0 : t == "series" ? 1 : 2; };
+	std::sort(types.begin(), types.end(), [&](const std::string &a, const std::string &b) {
+		return rank(a) != rank(b) ? rank(a) < rank(b) : a < b;
+	});
 	return types;
 }
 
@@ -797,6 +1321,10 @@ void Stremio::request_meta(const std::string &type, const std::string &id, MetaC
 			if (!url.empty()) candidates->push_back(url);
 		}
 	}
+	// Fallback to official Cinemeta if no installed add-on matched
+	if (candidates->empty() && id.compare(0, 2, "tt") == 0) {
+		candidates->push_back("https://v3-cinemeta.strem.io/meta/" + uri_encode(type) + "/" + uri_encode(id) + ".json");
+	}
 	// Try add-ons in order until one answers with a meta.
 	auto attempt = std::make_shared<std::function<void(size_t, std::string)>>();
 	const int gen = gen_;
@@ -815,6 +1343,57 @@ void Stremio::request_meta(const std::string &type, const std::string &id, MetaC
 		});
 	};
 	(*attempt)(0, "");
+}
+
+void Stremio::request_ratings(const std::string &imdb_id, RatingsCallback cb) {
+	if (imdb_id.compare(0, 2, "tt") != 0) {
+		cb(false, RatingsInfo());
+		return;
+	}
+	auto cached = ratings_cache_.find(imdb_id);
+	if (cached != ratings_cache_.end()) {
+		cb(true, cached->second);
+		return;
+	}
+	const int gen = gen_;
+	const std::string url = "https://www.omdbapi.com/?i=" + uri_encode(imdb_id) + "&plot=full&apikey=trilogy";
+	fetch_json(url, [this, gen, imdb_id, cb](bool ok, const Json &j, const std::string &) {
+		if (gen != gen_) return;
+		if (!ok || !j.is_object() || j["Response"].as_string("") == "False") {
+			cb(false, RatingsInfo());
+			return;
+		}
+		RatingsInfo info;
+		const std::string imdb_r = j["imdbRating"].as_string("");
+		if (!imdb_r.empty() && imdb_r != "N/A") info.imdb_rating = imdb_r;
+		const std::string mc = j["Metascore"].as_string("");
+		if (!mc.empty() && mc != "N/A") info.metacritic = mc + "/100";
+		for (const Json &r : j["Ratings"].elements()) {
+			const std::string src = r["Source"].as_string("");
+			const std::string val = r["Value"].as_string("");
+			if (val.empty() || val == "N/A") continue;
+			if (src == "Rotten Tomatoes") info.rotten_tomatoes = val;
+			else if (src == "Metacritic") info.metacritic = val;
+			else if (src == "Internet Movie Database" && info.imdb_rating.empty()) info.imdb_rating = val;
+		}
+		const std::string rated = j["Rated"].as_string("");
+		if (!rated.empty() && rated != "N/A" && rated != "Not Rated" && rated != "Unrated") info.rated = rated;
+		const std::string runtime = j["Runtime"].as_string("");
+		if (!runtime.empty() && runtime != "N/A") info.runtime = runtime;
+		const std::string plot = j["Plot"].as_string("");
+		if (!plot.empty() && plot != "N/A") info.full_plot = plot;
+		const std::string awards = j["Awards"].as_string("");
+		if (!awards.empty() && awards != "N/A") info.awards = awards;
+		const std::string box = j["BoxOffice"].as_string("");
+		if (!box.empty() && box != "N/A") info.box_office = box;
+
+		info.cast = split_comma_names(j["Actors"].as_string(""));
+		info.directors = split_comma_names(j["Director"].as_string(""));
+		info.writers = split_comma_names(j["Writer"].as_string(""));
+
+		ratings_cache_[imdb_id] = info;
+		cb(true, info);
+	});
 }
 
 void Stremio::request_streams(const std::string &type, const std::string &video_id, StreamsCallback on_addon,
@@ -839,7 +1418,12 @@ void Stremio::request_streams(const std::string &type, const std::string &video_
 			std::string err = error;
 			if (ok && json["streams"].is_array()) {
 				for (const Json &st : json["streams"].elements()) {
-					if (st.is_object()) streams.push_back(StreamItem::from_json(st, name));
+					if (st.is_object()) {
+						StreamItem item = StreamItem::from_json(st, name);
+						if (item.is_compatible()) {
+							streams.push_back(item);
+						}
+					}
 				}
 			} else if (ok) {
 				err = "unexpected streams response";

@@ -257,8 +257,8 @@ bool poll(uint32_t &held) {
 	if (k[SDL_SCANCODE_ESCAPE] || k[SDL_SCANCODE_BACKSPACE]) held |= BUTTON_BACK;
 	if (k[SDL_SCANCODE_Q] || k[SDL_SCANCODE_PAGEUP]) held |= BUTTON_L1;
 	if (k[SDL_SCANCODE_E] || k[SDL_SCANCODE_PAGEDOWN]) held |= BUTTON_R1;
-	if (k[SDL_SCANCODE_T]) held |= BUTTON_TRIANGLE;
-	if (k[SDL_SCANCODE_F]) held |= BUTTON_SQUARE;
+	if (k[SDL_SCANCODE_T] || k[SDL_SCANCODE_DELETE]) held |= BUTTON_TRIANGLE;
+	if (k[SDL_SCANCODE_F] || k[SDL_SCANCODE_X] || k[SDL_SCANCODE_I]) held |= BUTTON_SQUARE;
 	if (g_pad) {
 		auto b = [](SDL_GameControllerButton btn) { return SDL_GameControllerGetButton(g_pad, btn) != 0; };
 		if (b(SDL_CONTROLLER_BUTTON_DPAD_UP)) held |= BUTTON_UP;

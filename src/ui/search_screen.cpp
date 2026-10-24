@@ -14,29 +14,25 @@ using theme::S;
 
 const float W = 1920;
 const float MARGIN_X = 120;
-float content_top() { return S(150); }
-const int KEY_COLS = 6, KEY_ROWS = 7; // a-z and 0-9, then Space / Delete / Clear
-float key_gap() { return S(8); }
-float query_h() { return S(72); }
-float keys_top() { return content_top() + query_h() + S(24); }
-// Smaller at large UI scales, so the keyboard and its hints fit above the tab bar.
-float key() {
-	const float fit = (tabs::content_bottom() - S(50) - keys_top() - KEY_ROWS * key_gap()) / KEY_ROWS;
-	return std::min(S(64), fit);
-}
-float kb_w() { return KEY_COLS * key() + (KEY_COLS - 1) * key_gap(); }
-float results_x() { return MARGIN_X + kb_w() + S(64); }
-float view_w() { return W - MARGIN_X - results_x(); }
-CardRowLayout layout() { return { S(330), S(186), S(22), S(56), S(290), S(100) }; }
+const int KEY_COLS = 6;
 const float SEARCH_DELAY = 0.6f;
+
+CardRowLayout search_layout() {
+	return { S(330), S(186), S(22), S(56), S(290), S(100) };
+}
 
 } // namespace
 
 SearchScreen::SearchScreen(Fonts &fonts, Navigator &nav) : fonts_(fonts), navigator_(nav) {
 	build_keys();
-	// Come back to the last search (e.g. after opening a result).
+	// Come back to the last search (e.g. after opening a result or clicking an actor).
 	query_ = stremio().search_query();
 	rebuild_rows();
+	const int first = next_row_with_cards(rows_, -1, 1);
+	if (!query_.empty() && first >= 0) {
+		area_ = RESULTS;
+		row_ = first;
+	}
 }
 
 void SearchScreen::build_keys() {
@@ -93,7 +89,11 @@ void SearchScreen::move_keyboard(int dx, int dy) {
 		area_ = BAR;
 		return;
 	}
-	if (row < 0) return;
+	if (row < 0) {
+		prev_area_ = KEYBOARD;
+		area_ = FILTER;
+		return;
+	}
 	const int i = key_at(k.col, row);
 	if (i >= 0) key_ = i;
 }
@@ -111,16 +111,35 @@ void SearchScreen::move_results(int dx, int dy) {
 	const int target = next_row_with_cards(rows_, row_, dy);
 	if (target >= 0) {
 		row_ = target;
+	} else if (dy < 0) {
+		prev_area_ = RESULTS;
+		area_ = FILTER;
 	} else if (dy > 0) {
 		area_ = BAR;
 	}
 }
 
+void SearchScreen::toggle_filter() {
+	const bool next_mode = !stremio().search_person_only();
+	stremio().set_search_person_only(next_mode);
+	rebuild_rows();
+	bar_.show_toast(next_mode ? "Filter: Actor / Director Filmography Only" : "Filter: All Results (Titles + Cast & Crew)");
+}
+
 void SearchScreen::rebuild_rows() {
 	Stremio &s = stremio();
 	seen_search_rev_ = s.search_rev;
+	const bool person_only = s.search_person_only();
+	bool has_person_rows = false;
+	for (const BoardRow &b : s.search_results()) {
+		if (b.is_person_row && !b.items.empty()) {
+			has_person_rows = true;
+			break;
+		}
+	}
 	std::vector<CardRow> rows;
 	for (const BoardRow &b : s.search_results()) {
+		if (person_only && has_person_rows && !b.is_person_row) continue;
 		CardRow row;
 		if (CardRow::from_board(b, "Searching\xE2\x80\xA6", "Couldn't search this catalog: ", row)) rows.push_back(row);
 	}
@@ -137,18 +156,52 @@ void SearchScreen::update(double dt, uint32_t pressed) {
 	if (stremio().search_rev != seen_search_rev_) rebuild_rows();
 	if (bar_.handle_shoulders(pressed, fonts_, navigator_)) return;
 
+	// □ deletes a typed character (backspace); △ adds a space.
+	if (pressed & platform::BUTTON_SQUARE) {
+		if (!query_.empty()) {
+			query_.pop_back();
+			cursor_time_ = 0;
+			search_delay_ = SEARCH_DELAY;
+		}
+	}
+	if (pressed & platform::BUTTON_TRIANGLE) {
+		if (query_.size() < 60) {
+			query_ += ' ';
+			cursor_time_ = 0;
+			search_delay_ = SEARCH_DELAY;
+		}
+	}
+
 	if (area_ == BAR) {
 		if (bar_.handle_focused(pressed, fonts_, navigator_)) return;
 		if (pressed & platform::BUTTON_UP) area_ = KEYBOARD;
+	} else if (area_ == FILTER) {
+		if (pressed & platform::BUTTON_ACCEPT) {
+			toggle_filter();
+		}
+		if (pressed & platform::BUTTON_DOWN) {
+			const int first = next_row_with_cards(rows_, -1, 1);
+			area_ = (prev_area_ == RESULTS && first >= 0) ? RESULTS : KEYBOARD;
+		} else if (pressed & platform::BUTTON_RIGHT) {
+			const int first = next_row_with_cards(rows_, -1, 1);
+			if (first >= 0) {
+				area_ = RESULTS;
+				if (rows_[row_].cards.empty()) row_ = first;
+			}
+		} else if (pressed & platform::BUTTON_LEFT) {
+			area_ = KEYBOARD;
+		}
+		if (pressed & platform::BUTTON_BACK) area_ = KEYBOARD;
 	} else if (area_ == KEYBOARD) {
 		if (pressed & platform::BUTTON_LEFT) move_keyboard(-1, 0);
 		if (pressed & platform::BUTTON_RIGHT) move_keyboard(1, 0);
 		if (pressed & platform::BUTTON_UP) move_keyboard(0, -1);
 		if (pressed & platform::BUTTON_DOWN) move_keyboard(0, 1);
 		if (pressed & platform::BUTTON_ACCEPT) press_key(keys_[key_]);
-		// ○ deletes while typing, like a backspace; on an empty query it does nothing.
+		// ○ also deletes while typing, like a backspace; on an empty query it does nothing.
 		if ((pressed & platform::BUTTON_BACK) && !query_.empty()) {
 			query_.pop_back();
+			cursor_time_ = 0;
 			search_delay_ = SEARCH_DELAY;
 		}
 	} else {
@@ -169,66 +222,98 @@ void SearchScreen::update(double dt, uint32_t pressed) {
 	}
 	cursor_time_ += (float)dt;
 
+	const float top_y = S(150);
+	const float key_s = S(64), key_gap = S(8);
+	const float kb_w = KEY_COLS * key_s + (KEY_COLS - 1) * key_gap;
+	const float results_x = MARGIN_X + kb_w + S(64);
+	const float view_w = W - MARGIN_X - results_x;
+	const CardRowLayout l = search_layout();
+
+	filter_focus_ = ui::approach(filter_focus_, area_ == FILTER ? 1.0f : 0.0f, dt);
 	for (int i = 0; i < (int)keys_.size(); i++) {
 		keys_[i].focus = ui::approach(keys_[i].focus, (area_ == KEYBOARD && i == key_) ? 1.0f : 0.0f, dt);
 	}
-	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], area_ == RESULTS && r == row_, layout(), view_w(), dt);
+	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], area_ == RESULTS && r == row_, l, view_w, dt);
 	// Keep the focused row in view.
 	float top = 0;
-	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += row_height(rows_[i], layout());
-	content_scroll_ = ui::follow(content_scroll_, top, layout().height, tabs::content_bottom() - content_top(), dt);
+	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += row_height(rows_[i], l);
+	content_scroll_ = ui::follow(content_scroll_, top, l.height, tabs::CONTENT_BOTTOM - top_y, dt);
 	bar_.update(dt, area_ == BAR);
 }
 
 void SearchScreen::draw(Renderer &r) {
+	const float top_y = S(150);
+	const float key_s = S(64), key_gap = S(8);
+	const float kb_w = KEY_COLS * key_s + (KEY_COLS - 1) * key_gap;
+	const float query_h = S(72);
+	const float keys_top = top_y + query_h + S(24);
+	const float results_x = MARGIN_X + kb_w + S(64);
+	const float view_w = W - MARGIN_X - results_x;
+	const CardRowLayout l = search_layout();
+	const bool person_only = stremio().search_person_only();
+
 	// Results (drawn first: the header and keyboard bands cover the overflow).
 	if (rows_.empty()) {
 		const bool searching = search_delay_ > 0 || query_ != stremio().search_query();
-		const std::string hint = query_.empty() ? "Search for movies and series with the keyboard"
-				: searching ? "" : "No results for \"" + query_ + "\"";
-		r.text(fonts_.body, fonts_.body.ellipsize(hint, view_w()), results_x(), content_top() + S(40), theme::BASE_CONTENT_MUTED);
+		const std::string hint = query_.empty()
+				? (person_only ? "Search for an actor, director, or writer to view their filmography"
+							   : "Search for movies, series, actors, or directors with the keyboard")
+				: searching ? "Searching\xE2\x80\xA6"
+							: (person_only ? "No cast or director filmography found for \"" + query_ + "\""
+										   : "No results for \"" + query_ + "\"");
+		r.text(fonts_.body, fonts_.body.ellipsize(hint, view_w), results_x, top_y + S(40), theme::BASE_CONTENT_MUTED);
 	}
-	float y = content_top() - content_scroll_;
+	float y = top_y - content_scroll_;
 	for (const CardRow &row : rows_) {
-		const float h = row_height(row, layout());
-		if (y < tabs::content_bottom() && y + h > 0) draw_row(r, fonts_, row, layout(), results_x(), y, view_w());
+		const float h = row_height(row, l);
+		if (y < tabs::CONTENT_BOTTOM && y + h > 0) draw_row(r, fonts_, row, l, results_x, y, view_w);
 		y += h;
 	}
 
 	// Left band: query + keyboard (covers cards scrolled to the left).
-	r.rect(0, content_top() - S(10), results_x() - S(24), tabs::content_bottom() - content_top() + S(10), theme::BASE_100);
-	r.rect(0, 0, W, content_top() - S(10), theme::BASE_100);
-	r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::BASE_CONTENT);
+	r.rect(0, top_y - S(10), results_x - S(24), tabs::CONTENT_BOTTOM - top_y + S(10), theme::BASE_100);
+	r.rect(0, 0, W, top_y - S(10), theme::BASE_100);
+	const float title_w = r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::BASE_CONTENT);
+	const std::string mode_badge = person_only ? "Filter: Actor / Director Only" : "Filter: Titles + Cast & Crew";
+	const float chip_h = S(42);
+	const float chip_w = ui::chip_width(fonts_.small, mode_badge);
+	const float chip_x = MARGIN_X + title_w + S(24);
+	const float chip_y = S(96) - fonts_.page_header.size() * 0.36f - chip_h / 2;
+	ui::chip(r, fonts_.small, mode_badge, chip_x, chip_y, chip_w, chip_h, person_only, filter_focus_, theme::BASE_100);
 
 	// The query field (daisyUI input): ringed while typing.
 	const float ring = area_ == KEYBOARD ? 1.0f : 0.0f;
-	ui::begin_focus(r, MARGIN_X, content_top(), kb_w(), query_h(), theme::radius_field(), ring, 1.0f, theme::BASE_300);
-	r.rounded_rect(MARGIN_X, content_top(), kb_w(), query_h(), theme::radius_field(), theme::BASE_200);
+	ui::begin_focus(r, MARGIN_X, top_y, kb_w, query_h, theme::RADIUS_FIELD, ring, 1.0f, theme::BASE_300);
+	r.rounded_rect(MARGIN_X, top_y, kb_w, query_h, theme::RADIUS_FIELD, theme::BASE_200);
 	r.pop();
-	const float qx = MARGIN_X + S(20), qy = content_top() + query_h() / 2 + S(10);
+	const float qx = MARGIN_X + S(20), qy = top_y + query_h / 2 + S(10);
 	if (query_.empty()) {
-		r.text(fonts_.card_title, "Type a title", qx, qy, theme::BASE_CONTENT_MUTED);
+		r.text(fonts_.card_title, person_only ? "Type actor or director" : "Type title or actor", qx, qy, theme::BASE_CONTENT_MUTED);
 	} else {
 		const std::string shown = query_.size() > 26 ? "\xE2\x80\xA6" + query_.substr(query_.size() - 25) : query_;
 		r.text(fonts_.card_title, shown, qx, qy, theme::BASE_CONTENT);
 		if (std::fmod(cursor_time_, 1.0f) < 0.6f) {
-			r.rect(qx + fonts_.card_title.measure(shown) + S(3), content_top() + S(18), S(3), query_h() - S(36), theme::PRIMARY);
+			r.rect(qx + fonts_.card_title.measure(shown) + S(3), top_y + S(18), S(3), query_h - S(36), theme::PRIMARY);
 		}
 	}
 
 	for (const Key &k : keys_) {
-		const float x = MARGIN_X + k.col * (key() + key_gap());
-		const float ky = keys_top() + k.row * (key() + key_gap());
-		const float w = k.span * key() + (k.span - 1) * key_gap();
+		const float x = MARGIN_X + k.col * (key_s + key_gap);
+		const float ky = keys_top + k.row * (key_s + key_gap);
+		const float w = k.span * key_s + (k.span - 1) * key_gap;
 		const float f = k.focus;
-		ui::begin_focus(r, x, ky, w, key(), theme::radius_field(), f);
-		r.rounded_rect(x, ky, w, key(), theme::radius_field(), mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
+		ui::begin_focus(r, x, ky, w, key_s, theme::RADIUS_FIELD, f);
+		r.rounded_rect(x, ky, w, key_s, theme::RADIUS_FIELD, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
 		Font &font = k.span > 1 ? fonts_.body : fonts_.card_title;
-		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + key() / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
+		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + key_s / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
 		r.pop(); // keys stay bright: the whole keyboard is one control
 	}
-	const float hint_y = keys_top() + (keys_.back().row + 1) * (key() + key_gap()) + S(30);
-	ui::hints(r, fonts_.small, { { "\xE2\x97\x8B", "Delete" }, { "\xE2\x96\xB6", "Results" } }, MARGIN_X, hint_y);
+	const float hint_y = keys_top + (keys_.back().row + 1) * (key_s + key_gap) + S(30);
+	ui::hints(r, fonts_.small,
+			{ { "\xE2\x96\xA1", "Delete" },
+					{ "\xE2\x96\xB3", "Space" },
+					{ "\xC3\x97", area_ == FILTER ? "Toggle Filter" : "Select" } },
+			MARGIN_X, hint_y);
 
 	bar_.draw(r, fonts_);
 }

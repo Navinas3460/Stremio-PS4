@@ -78,7 +78,7 @@ TEST(models_addon_resources) {
 	const Addon a = Addon::from_json(Json::parse(R"({"transportUrl":"https://addon.example/abc/manifest.json",
 		"manifest":{"id":"x","name":"X","types":["movie","series"],"idPrefixes":["tt"],
 		"resources":["catalog",{"name":"stream","types":["movie"],"idPrefixes":["tt"]},{"name":"subtitles"}],
-		"catalogs":[{"type":"movie","id":"top","name":"Top","extra":[{"name":"search"},{"name":"genre"}]},
+		"catalogs":[{"type":"movie","id":"top","name":"Top","extra":[{"name":"search"},{"name":"genre","options":["Action","Sci-Fi"]},{"name":"skip"}]},
 		            {"type":"series","id":"last","extra":[{"name":"lastVideosIds","isRequired":true,"optionsLimit":50}]}]}})"));
 	CHECK(a.is_resource_supported("stream", "movie", "tt123"));
 	CHECK(!a.is_resource_supported("stream", "series", "tt123")); // the resource's own types win
@@ -91,7 +91,9 @@ TEST(models_addon_resources) {
 
 	CHECK(a.catalogs[0].are_extra_names_supported({}));
 	CHECK(a.catalogs[0].are_extra_names_supported({ "search" }));
-	CHECK(!a.catalogs[0].are_extra_names_supported({ "skip" }));
+	CHECK(a.catalogs[0].are_extra_names_supported({ "skip" }));
+	CHECK_EQ(a.catalogs[0].extra_prop("genre")->options.size(), (size_t)2);
+	CHECK_EQ(a.catalogs[0].extra_prop("genre")->options[0], "Action");
 	CHECK(!a.catalogs[1].are_extra_names_supported({})); // required extra missing
 	CHECK(a.catalogs[1].are_extra_names_supported({ "lastVideosIds" }));
 	CHECK_EQ(a.catalogs[1].extra_prop("lastVideosIds")->options_limit, 50);
@@ -123,6 +125,14 @@ TEST(models_streams) {
 	const StreamItem rtmp = StreamItem::from_json(Json::parse(R"({"url":"rtmp://x/y"})"), "A");
 	CHECK_EQ(rtmp.playable_url(), "");
 	CHECK_EQ(rtmp.unsupported_reason(), "Unsupported link");
+	CHECK(!rtmp.is_compatible());
+
+	// 4K and live streams are filtered out by is_compatible()
+	CHECK(direct.is_compatible());
+	const StreamItem uhd = StreamItem::from_json(Json::parse(R"({"url":"https://cdn.example/v.mkv","name":"4K HDR","title":"Movie.2160p.WEB-DL.mkv"})"), "Debrid");
+	CHECK(!uhd.is_compatible());
+	const StreamItem hls = StreamItem::from_json(Json::parse(R"({"url":"https://live.example/channel.m3u8","name":"Live TV"})"), "IPTV");
+	CHECK(!hls.is_compatible());
 }
 
 TEST(stream_torrent_stats) {

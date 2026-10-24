@@ -19,21 +19,18 @@ struct BoardRow {
 	std::vector<MetaItem> items;
 	bool loading = true;
 	std::string error;
+	bool is_person_row = false;
 };
 
-// Discover (stremio-core CatalogWithFilters): one add-on catalog at a time,
-// picked by type, catalog and its filter (genre, year...), loaded a page at
-// a time.
-struct Discover {
-	std::vector<std::string> types;          // movie and series first, then A-Z
-	std::string type;
-	std::vector<std::string> catalogs;       // the type's catalogs (names)
-	int catalog = 0;
-	std::vector<std::string> filter_options; // the catalog's genres, years...; "" = All
-	std::string filter;
-	std::vector<MetaItem> items;
-	bool loading = false, has_more = false;
-	std::string error;
+// A browsable add-on catalog for the Discover tab (type, catalog, optional
+// genre/year filter options, and whether `skip` pagination is supported).
+struct DiscoverCatalog {
+	std::string addon_id, addon_name;
+	std::string type, id, name;
+	std::string filter_name;                 // e.g. "genre", or "" if none
+	bool filter_required = false;            // true when "All" isn't valid (e.g. Cinemeta's "Year")
+	std::vector<std::string> filter_options; // genre / year choices
+	bool supports_skip = false;
 };
 
 struct LinkLogin {
@@ -69,22 +66,39 @@ public:
 	// new episodes, newest first.
 	std::vector<const LibraryItem *> continue_watching() const;
 	int notification_count(const std::string &meta_id) const;
+	void dismiss_from_continue_watching(const std::string &id);
 
 	const std::vector<BoardRow> &board() const { return board_; }
 
-	// Search (stremio-core CatalogsWithExtra with the "search" extra): one row
-	// per add-on catalog that supports searching. "" clears the results.
+	// Discover (stremio-core CatalogsWithExtra): browse catalogs by type and
+	// optional filter (genre, year...) with `skip` pagination.
+	bool addons_loaded() const { return addons_loaded_; }
+	const std::vector<Addon> &addons() const { return addons_; }
+	std::vector<std::string> discover_types() const;
+	std::vector<DiscoverCatalog> discover_catalogs(const std::string &type) const;
+	using DiscoverCallback = std::function<void(bool ok, std::vector<MetaItem> &items, const std::string &error)>;
+	void fetch_discover(const DiscoverCatalog &cat, const std::string &filter_value, int skip, DiscoverCallback cb);
+
+	// Community add-ons catalog + Install / Uninstall add-ons
+	void fetch_community_addons();
+	bool community_addons_loaded() const { return community_addons_loaded_; }
+	bool community_addons_loading() const { return community_addons_loading_; }
+	const std::string &community_addons_error() const { return community_addons_error_; }
+	const std::vector<Addon> &community_addons() const { return community_addons_; }
+	bool is_addon_installed(const Addon &addon) const;
+	using AddonActionCallback = std::function<void(bool ok, const std::string &message)>;
+	void install_addon(const Addon &addon, AddonActionCallback cb = nullptr);
+	void install_addon_url(const std::string &manifest_url, AddonActionCallback cb = nullptr);
+	void uninstall_addon(const Addon &addon, AddonActionCallback cb = nullptr);
+
+	// Search (stremio-core CatalogsWithExtra with the "search" extra +
+	// Actor / Director filmography lookup via IMDb + Wikidata).
 	void search(const std::string &query);
+	void search_person(const std::string &person_name);
+	bool search_person_only() const { return search_person_only_; }
+	void set_search_person_only(bool person_only);
 	const std::vector<BoardRow> &search_results() const { return search_; }
 	const std::string &search_query() const { return search_query_; }
-	// Discover: discover_open() loads the first catalog the first time;
-	// discover_select() switches type / catalog / filter ("" type: keep).
-	const Discover &discover() const { return discover_; }
-	void discover_open();
-	void discover_select(const std::string &type, int catalog, const std::string &filter);
-	void discover_load_more();
-	bool addons_loaded() const { return addons_loaded_; }
-
 	bool library_loaded() const { return library_loaded_; }
 	const std::string &library_error() const { return library_error_; }
 	const std::string &addons_error() const { return addons_error_; }
@@ -92,6 +106,9 @@ public:
 	// Meta details from the first add-on that provides them.
 	using MetaCallback = std::function<void(bool ok, const MetaItem &meta, const std::string &error)>;
 	void request_meta(const std::string &type, const std::string &id, MetaCallback cb);
+	// External ratings (IMDb, Rotten Tomatoes, Metacritic, MPAA rating, full plot, cast/crew fallback).
+	using RatingsCallback = std::function<void(bool ok, const RatingsInfo &info)>;
+	void request_ratings(const std::string &imdb_id, RatingsCallback cb);
 	// Streams for one video from every add-on that provides them:
 	// `on_addon` once per add-on, then `on_done`.
 	using StreamsCallback = std::function<void(const std::string &addon, std::vector<StreamItem> &streams, const std::string &error)>;
@@ -126,7 +143,7 @@ public:
 	void update(double dt);
 
 	// Bumped whenever the corresponding state changes.
-	int auth_rev = 0, library_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0, discover_rev = 0;
+	int auth_rev = 0, library_rev = 0, addons_rev = 0, community_addons_rev = 0, board_rev = 0, notifications_rev = 0, search_rev = 0;
 
 private:
 	using ApiCallback = std::function<void(bool ok, const Json &result, const std::string &error)>;
@@ -138,6 +155,9 @@ private:
 	void save_session();
 	void sync_library();
 	void sync_addons();
+	void push_addons(AddonActionCallback cb = nullptr);
+	void load_local_addons();
+	void save_local_addons();
 	void after_sync();
 #if defined(STREMIO_DEV)
 	void add_extra_addons(std::vector<std::string> urls, std::function<void()> done);
@@ -145,20 +165,13 @@ private:
 	void load_board();
 	// Loads each row's catalog URL into its items; answers are dropped once
 	// `current` is false (a newer board / search). Bumps `rev` per answer.
-	void fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current);
+	void fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current,
+			const std::string &person_filter = "");
+	void fetch_person_filmography(const std::string &query, int gen);
 	std::vector<BoardRow> search_;
 	std::string search_query_;
+	bool search_person_only_ = false;
 	int search_gen_ = 0;
-	// Discover's selectable lists from the add-ons; keeps the selection when
-	// it's still there.
-	void discover_rebuild();
-	void discover_lists(const std::string &catalog_key);
-	std::string discover_catalog_key() const;
-	void discover_fetch(bool next_page);
-	Discover discover_;
-	bool discover_opened_ = false;
-	std::vector<std::pair<size_t, size_t>> discover_sources_; // the type's catalogs: (add-on, catalog) indices
-	int discover_gen_ = 0;
 	void pull_notifications();
 	void poll_link();
 	int64_t cw_time(const LibraryItem &item) const;
@@ -174,7 +187,13 @@ private:
 	std::vector<Addon> addons_;
 	bool addons_loaded_ = false;
 	std::string addons_error_;
+	std::vector<Addon> community_addons_;
+	bool community_addons_loaded_ = false;
+	bool community_addons_loading_ = false;
+	std::string community_addons_error_;
 	int pending_syncs_ = 0;
+
+	std::map<std::string, RatingsInfo> ratings_cache_;
 
 	struct Notif {
 		int count = 0;

@@ -30,6 +30,8 @@ public:
 
 	// One Font per (file, pixel size).
 	bool load(const std::string &path, int pixel_size);
+	// Resizes an already-loaded font and clears its glyph atlas cache.
+	void set_size(int pixel_size);
 
 	float draw(Renderer &r, const std::string &utf8, float x, float baseline, const Color &c);
 	float measure(const std::string &utf8);
@@ -42,8 +44,6 @@ public:
 	std::vector<std::string> wrap(const std::string &utf8, float max_width, int max_lines = 0);
 
 	int size() const { return size_; }
-	// Changes the pixel size (the UI scale setting); glyphs are redrawn.
-	void set_size(int pixel_size);
 
 private:
 	struct Glyph {
@@ -87,7 +87,6 @@ private:
 	void shape(const std::string &utf8, Layout &out);
 	std::vector<std::string> wrap_lines(const std::string &utf8, float max_width, int max_lines);
 	void upload_pending(Renderer &r);
-	void clear_atlas();
 
 	static FT_Library library_;
 	static std::vector<std::string> fallbacks_;

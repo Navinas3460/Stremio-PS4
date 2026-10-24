@@ -26,7 +26,7 @@ namespace http {
 
 namespace {
 int g_http_ctx = -1;
-const char *USER_AGENT = "StremioPS4/" APP_VERSION " (PlayStation 4)";
+const char *USER_AGENT = "StremioPS4/" APP_VERSION " (https://www.stremio.com; office@stremio.com)";
 
 std::string describe(int32_t code) {
 	char buf[96];
@@ -236,6 +236,10 @@ private:
 				int32_t type = 0;
 				size_t length = 0;
 				if (sceHttpGetResponseContentLength(req, &type, &length) >= 0) *total = length;
+				if (*total == 0 && have_headers) {
+					const std::string cl = header_value(headers, headers_len, "content-length");
+					if (!cl.empty()) *total = strtoull(cl.c_str(), nullptr, 10);
+				}
 			}
 		}
 		if (status == 206 || status == 200) {

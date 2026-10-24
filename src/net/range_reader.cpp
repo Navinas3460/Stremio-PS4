@@ -82,7 +82,7 @@ bool RangeReader::taken(uint64_t block) const {
 }
 
 int RangeReader::read(uint64_t pos, uint8_t *buf, int len) {
-	if (pos >= size_ || len <= 0) return 0;
+	if (len <= 0 || pos >= size_) return 0;
 	const uint64_t block = pos / BLOCK;
 	std::shared_ptr<std::vector<uint8_t>> data;
 	{
@@ -106,13 +106,12 @@ int RangeReader::read(uint64_t pos, uint8_t *buf, int len) {
 			if (waited_from == 0) waited_from = platform::now();
 			arrived_.wait(mutex_);
 		}
-		// Playback had to wait for the network (a stall, unless it was a seek).
 		if (waited_from > 0 && platform::now() - waited_from > 0.2) {
 			platform::log("range: waited %.1f s for block %llu", platform::now() - waited_from, (unsigned long long)block);
 		}
 	}
 	const uint64_t offset = pos - block * BLOCK;
-	if (offset >= data->size()) return -1;
+	if (offset >= data->size()) return 0;
 	const int n = (int)std::min<uint64_t>((uint64_t)len, data->size() - offset);
 	memcpy(buf, data->data() + offset, (size_t)n);
 	return n;
@@ -136,23 +135,25 @@ void RangeReader::download_loop(Worker &w) {
 	if (w.index == 0) {
 		std::vector<uint8_t> probe;
 		uint64_t total = 0;
+		// 1-byte range request: learns the size from Content-Range without
+		// committing to downloading the whole file if the server ignores Range.
 		const int status = conn->fetch(0, 0, probe, &total, w.cancel, err);
 		if (status < 0) {
 			fail(err.empty() ? "Network error" : err);
 			return;
 		}
-		if (status >= 400) {
+		if (status != 206 && status != 200) {
 			fail("The server answered HTTP " + std::to_string(status));
 			return;
 		}
 		if (total == 0) {
-			fail("The server didn't say how big the video is");
+			fail("The server didn't give the file size");
 			return;
 		}
 		size_ = total;
 		threads::Lock lock(mutex_);
-		headers_ = urls::redirect_headers(url_, conn->url(), headers_); // before the other workers start
-		url_ = conn->url(); // the other workers skip the redirects
+		headers_ = urls::redirect_headers(url_, conn->url(), headers_);
+		url_ = conn->url();
 		platform::log("range: %s: %llu bytes (HTTP %d), %d connections", urls::for_log(url_).c_str(), (unsigned long long)total, status,
 				WORKERS);
 		opened_ = true;

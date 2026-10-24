@@ -83,14 +83,30 @@ bool prefix_ok(bool has_prefixes, const std::vector<std::string> &prefixes, cons
 
 std::vector<std::string> strings(const Json &arr) {
 	std::vector<std::string> out;
+	if (arr.is_string() && !arr.as_string().empty()) {
+		out.push_back(arr.as_string());
+		return out;
+	}
 	for (const Json &v : arr.elements()) {
-		if (v.is_string()) out.push_back(v.as_string());
+		if (v.is_string() && !v.as_string().empty()) out.push_back(v.as_string());
 	}
 	return out;
 }
 
 bool contains(const std::vector<std::string> &v, const std::string &s) {
 	return std::find(v.begin(), v.end(), s) != v.end();
+}
+
+std::string to_lower_ascii(std::string s) {
+	for (char &c : s) c = (char)tolower((unsigned char)c);
+	return s;
+}
+
+bool name_matches(const std::string &entry, const std::string &query) {
+	if (entry.empty() || query.empty()) return false;
+	const std::string a = to_lower_ascii(entry);
+	const std::string b = to_lower_ascii(query);
+	return a == b || a.find(b) != std::string::npos;
 }
 
 } // namespace
@@ -149,14 +165,14 @@ std::vector<std::string> wide_artwork(const std::string &id, const std::string &
 	return urls;
 }
 
-std::vector<std::string> poster_artwork(const std::string &id, const std::string &poster) {
+// --- LibraryItem --------------------------------------------------------------
+
+std::vector<std::string> LibraryItem::poster_images() const {
 	std::vector<std::string> urls;
 	if (!poster.empty()) urls.push_back(poster);
 	if (id.compare(0, 2, "tt") == 0) urls.push_back(std::string(METAHUB) + "/poster/medium/" + id + "/img");
 	return urls;
 }
-
-// --- LibraryItem --------------------------------------------------------------
 
 LibraryItem LibraryItem::from_json(const Json &j) {
 	LibraryItem item;
@@ -255,20 +271,74 @@ std::string LibraryItem::episode_label() const {
 MetaItem MetaItem::from_json(const Json &j) {
 	MetaItem m;
 	m.id = str(j["id"]);
+	if (m.id.empty()) m.id = str(j["imdb_id"]);
+	m.imdb_id = str(j["imdb_id"]);
+	if (m.imdb_id.empty() && m.id.compare(0, 2, "tt") == 0) m.imdb_id = m.id;
 	m.type = str(j["type"]);
 	m.name = str(j["name"]);
 	m.poster = str(j["poster"]);
+	if (m.poster.empty() && m.id.compare(0, 2, "tt") == 0) {
+		m.poster = std::string(METAHUB) + "/poster/medium/" + m.id + "/img";
+	}
 	m.background = str(j["background"]);
 	m.release_info = str(j["releaseInfo"]);
+	if (m.release_info.empty()) m.release_info = str(j["year"]);
 	m.description = str(j["description"]);
 	m.default_video_id = str(j["behaviorHints"]["defaultVideoId"]);
+
+	// Ratings & extended metadata fields from Cinemeta / add-ons
+	m.imdb_rating = str(j["imdbRating"]);
+	if (m.imdb_rating == "N/A" || m.imdb_rating == "0" || m.imdb_rating == "0.0") m.imdb_rating.clear();
+	m.runtime = str(j["runtime"]);
+	if (m.runtime == "N/A") m.runtime.clear();
+	m.awards = str(j["awards"]);
+	if (m.awards == "N/A") m.awards.clear();
+	m.country = str(j["country"]);
+	if (m.country == "N/A") m.country.clear();
+
+	m.genres = strings(j["genres"]);
+	if (m.genres.empty()) m.genres = strings(j["genre"]);
+	m.cast = strings(j["cast"]);
+	m.directors = strings(j["director"]);
+	if (m.directors.empty()) m.directors = strings(j["directors"]);
+	m.writers = strings(j["writer"]);
+	if (m.writers.empty()) m.writers = strings(j["writers"]);
+
+	// Also inspect Stremio v3 `links` array (Cast, Directors, Writers, Genres, imdb)
+	for (const Json &link : j["links"].elements()) {
+		if (!link.is_object()) continue;
+		const std::string cat = to_lower_ascii(str(link["category"]));
+		const std::string name = str(link["name"]);
+		if (name.empty()) continue;
+		if (cat == "imdb" && m.imdb_rating.empty()) {
+			m.imdb_rating = name;
+		} else if (cat == "cast" && !contains(m.cast, name)) {
+			m.cast.push_back(name);
+		} else if ((cat == "directors" || cat == "director") && !contains(m.directors, name)) {
+			m.directors.push_back(name);
+		} else if ((cat == "writers" || cat == "writer") && !contains(m.writers, name)) {
+			m.writers.push_back(name);
+		} else if ((cat == "genres" || cat == "genre") && !contains(m.genres, name)) {
+			m.genres.push_back(name);
+		}
+	}
+
 	for (const Json &v : j["videos"].elements()) {
 		Video video;
 		video.id = str(v["id"]);
 		video.title = v.has("title") ? str(v["title"]) : str(v["name"]);
 		video.released = parse_time(v["released"]);
+		if (v["released"].is_string() && v["released"].as_string().size() >= 10) {
+			video.released_date = v["released"].as_string().substr(0, 10);
+		}
 		video.season = (int)v["season"].as_int();
 		video.episode = (int)(v.has("episode") ? v["episode"].as_int() : v["number"].as_int());
+		video.overview = v.has("overview") ? str(v["overview"]) : str(v["description"]);
+		video.thumbnail = str(v["thumbnail"]);
+		if (video.thumbnail.empty() && !m.imdb_id.empty() && video.season > 0 && video.episode > 0) {
+			video.thumbnail = "https://episodes.metahub.space/" + m.imdb_id + "/" +
+					std::to_string(video.season) + "/" + std::to_string(video.episode) + "/w780.jpg";
+		}
 		m.videos.push_back(video);
 	}
 	std::sort(m.videos.begin(), m.videos.end(), [](const Video &a, const Video &b) {
@@ -277,6 +347,51 @@ MetaItem MetaItem::from_json(const Json &j) {
 		return a.released < b.released;
 	});
 	return m;
+}
+
+void MetaItem::apply_ratings(const RatingsInfo &info) {
+	if (!info.imdb_rating.empty() && imdb_rating.empty()) imdb_rating = info.imdb_rating;
+	if (!info.rotten_tomatoes.empty()) rotten_tomatoes = info.rotten_tomatoes;
+	if (!info.metacritic.empty()) metacritic = info.metacritic;
+	if (!info.rated.empty()) rated = info.rated;
+	if (!info.runtime.empty() && runtime.empty()) runtime = info.runtime;
+	if (!info.awards.empty() && awards.empty()) awards = info.awards;
+	if (!info.box_office.empty() && box_office.empty()) box_office = info.box_office;
+	if (!info.full_plot.empty() && (description.empty() || description.size() < info.full_plot.size() || description.find("...") != std::string::npos)) {
+		description = info.full_plot;
+	}
+	for (const std::string &c : info.cast) {
+		if (!contains(cast, c)) cast.push_back(c);
+	}
+	for (const std::string &d : info.directors) {
+		if (!contains(directors, d)) directors.push_back(d);
+	}
+	for (const std::string &w : info.writers) {
+		if (!contains(writers, w)) writers.push_back(w);
+	}
+}
+
+bool MetaItem::involves_person(const std::string &person_name) const {
+	for (const std::string &c : cast) if (name_matches(c, person_name)) return true;
+	for (const std::string &d : directors) if (name_matches(d, person_name)) return true;
+	for (const std::string &w : writers) if (name_matches(w, person_name)) return true;
+	return false;
+}
+
+std::string MetaItem::person_role(const std::string &person_name) const {
+	std::vector<std::string> roles;
+	for (const std::string &d : directors) {
+		if (name_matches(d, person_name)) { roles.push_back("Director"); break; }
+	}
+	for (const std::string &w : writers) {
+		if (name_matches(w, person_name)) { roles.push_back("Writer"); break; }
+	}
+	for (const std::string &c : cast) {
+		if (name_matches(c, person_name)) { roles.push_back("Cast"); break; }
+	}
+	std::string out;
+	for (size_t i = 0; i < roles.size(); i++) out += (i ? " / " : "") + roles[i];
+	return out;
 }
 
 bool metas_from_response(const Json &result, std::vector<MetaItem> &out) {
@@ -309,14 +424,22 @@ bool Catalog::are_extra_names_supported(const std::vector<std::string> &names) c
 
 Addon Addon::from_json(const Json &d) {
 	Addon a;
+	a.raw = d;
 	a.transport_url = str(d["transportUrl"]);
-	const Json &m = d["manifest"];
+	const Json &m = d["manifest"].is_object() ? d["manifest"] : d;
 	a.id = str(m["id"]);
 	a.name = m.has("name") ? str(m["name"]) : a.id;
+	a.version = str(m["version"]);
+	a.description = str(m["description"]);
+	a.logo = str(m["logo"]);
 	a.types = strings(m["types"]);
 	a.has_id_prefixes = m["idPrefixes"].is_array();
 	a.id_prefixes = strings(m["idPrefixes"]);
 	a.resources = m["resources"];
+	a.is_protected = d["flags"]["protected"].as_bool() || a.id == "com.linvo.cinemeta";
+	a.is_official = d["flags"]["official"].as_bool() || a.id == "com.linvo.cinemeta";
+	a.configurable = m["behaviorHints"]["configurable"].as_bool();
+	a.configuration_required = m["behaviorHints"]["configurationRequired"].as_bool();
 	for (const Json &c : m["catalogs"].elements()) {
 		Catalog cat;
 		cat.type = str(c["type"]);
@@ -325,19 +448,60 @@ Addon Addon::from_json(const Json &d) {
 		if (c["extra"].is_array()) { // full form
 			for (const Json &e : c["extra"].elements()) {
 				if (!e["name"].is_string()) continue;
+				std::vector<std::string> opts = strings(e["options"]);
+				if (e["name"].as_string() == "genre" && opts.empty()) opts = strings(c["genres"]);
 				cat.extra.push_back({ e["name"].as_string(), e["isRequired"].as_bool(), (int)e["optionsLimit"].as_int(1),
-						strings(e["options"]) });
+						std::move(opts) });
 			}
 		} else { // legacy short form
 			const std::vector<std::string> required = strings(c["extraRequired"]);
-			// with the genres in their own field
 			for (const std::string &n : strings(c["extraSupported"])) {
-				cat.extra.push_back({ n, contains(required, n), 1, n == "genre" ? strings(c["genres"]) : std::vector<std::string>() });
+				std::vector<std::string> opts = n == "genre" ? strings(c["genres"]) : std::vector<std::string>();
+				cat.extra.push_back({ n, contains(required, n), 1, std::move(opts) });
 			}
 		}
 		a.catalogs.push_back(cat);
 	}
 	return a;
+}
+
+Json Addon::to_descriptor_json() const {
+	if (raw.is_object() && raw.has("transportUrl") && raw.has("manifest")) {
+		Json d = raw;
+		if (!d.has("flags") || !d["flags"].is_object()) {
+			Json flags = Json::object();
+			flags.set("official", is_official).set("protected", is_protected);
+			d.set("flags", flags);
+		}
+		return d;
+	}
+	Json d = Json::object();
+	d.set("transportUrl", transport_url);
+	d.set("transportName", "http");
+	if (raw.is_object()) {
+		d.set("manifest", raw);
+	} else {
+		Json m = Json::object();
+		m.set("id", id).set("name", name).set("version", version).set("description", description);
+		if (!logo.empty()) m.set("logo", logo);
+		d.set("manifest", m);
+	}
+	Json flags = Json::object();
+	flags.set("official", is_official).set("protected", is_protected);
+	d.set("flags", flags);
+	return d;
+}
+
+std::vector<std::string> Addon::resource_names() const {
+	std::vector<std::string> out;
+	if (!catalogs.empty()) out.push_back("catalog");
+	for (const Json &r : resources.elements()) {
+		std::string name;
+		if (r.is_string()) name = r.as_string();
+		else if (r.is_object()) name = str(r["name"]);
+		if (!name.empty() && !contains(out, name)) out.push_back(name);
+	}
+	return out;
 }
 
 bool Addon::catalog_resource_supports(const std::string &item_id, const std::string &item_type) const {
@@ -502,4 +666,57 @@ std::string StreamItem::unsupported_reason() const {
 		case URL: return playable_url().empty() ? "Unsupported link" : "";
 		default: return "Unsupported stream type";
 	}
+}
+
+bool StreamItem::is_compatible() const {
+	if (source != URL && source != TORRENT) {
+		return false;
+	}
+	std::string lower = name + " " + description + " " + filename + " " + url;
+	for (auto &c : lower) c = tolower((unsigned char)c);
+	
+	// Filter out all 4K / 2160p / UHD / 8K / 3D / sample / trailer / live streams so they never waste time loading
+	if (lower.find("2160p") != std::string::npos ||
+	    lower.find("2160i") != std::string::npos ||
+	    lower.find("4k") != std::string::npos ||
+	    lower.find("uhd") != std::string::npos ||
+	    lower.find("3840x") != std::string::npos ||
+	    lower.find("4096x") != std::string::npos ||
+	    lower.find("4320p") != std::string::npos ||
+	    lower.find(" 8k") != std::string::npos ||
+	    lower.find(".m3u8") != std::string::npos ||
+	    lower.find("rtmp://") != std::string::npos ||
+	    lower.find("rtsp://") != std::string::npos ||
+	    lower.find("sample") != std::string::npos ||
+	    lower.find("trailer") != std::string::npos ||
+	    lower.find("extras") != std::string::npos ||
+	    lower.find("featurette") != std::string::npos ||
+	    lower.find("hsbs") != std::string::npos ||
+	    lower.find("3d sbs") != std::string::npos ||
+	    lower.find(".3d.") != std::string::npos) {
+		return false;
+	}
+
+	// Filter out oversized (> 18 GB) unlabeled 4K / BluRay Remux files
+	if (video_size > (18ULL << 30)) {
+		return false;
+	}
+	
+	if (!filename.empty()) {
+		std::string fn = filename;
+		for (auto &c : fn) c = tolower((unsigned char)c);
+		if (fn.rfind(".rar") != std::string::npos ||
+		    fn.rfind(".zip") != std::string::npos ||
+		    fn.rfind(".7z") != std::string::npos ||
+		    fn.rfind(".iso") != std::string::npos ||
+		    fn.rfind(".exe") != std::string::npos ||
+		    fn.rfind(".txt") != std::string::npos ||
+		    fn.rfind(".nfo") != std::string::npos ||
+		    fn.rfind(".jpg") != std::string::npos ||
+		    fn.rfind(".png") != std::string::npos ||
+		    fn.rfind(".m3u8") != std::string::npos) {
+			return false;
+		}
+	}
+	return true;
 }

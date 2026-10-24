@@ -307,3 +307,24 @@ TEST(stremio_add_and_remove_from_library) {
 	s.remove_from_library("tt0000001");
 	CHECK_EQ(count_puts(), before);
 }
+
+TEST(stremio_discover_catalogs_and_filters) {
+	Stremio s;
+	signed_in(s);
+	CHECK(s.discover_types() == std::vector<std::string>({ "movie", "series" }));
+	const std::vector<DiscoverCatalog> movie_cats = s.discover_catalogs("movie");
+	CHECK_EQ(movie_cats.size(), (size_t)9); // 1 from addon + 8 built-in streaming catalogs
+	if (!movie_cats.empty()) {
+		CHECK_EQ(movie_cats[0].id, "top");
+		CHECK_EQ(movie_cats[0].name, "Popular");
+		bool called = false;
+		s.fetch_discover(movie_cats[0], "", 0, [&](bool ok, std::vector<MetaItem> &items, const std::string &) {
+			called = true;
+			CHECK(ok);
+			CHECK_EQ(items.size(), (size_t)3);
+		});
+		fake::settle();
+		CHECK(called);
+	}
+}
+

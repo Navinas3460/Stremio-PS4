@@ -46,7 +46,7 @@ namespace {
 
 const size_t THREAD_STACK = 1024 * 1024;
 // RGBA frame buffers live in direct memory (the libc heap size is unknown
-// on PS4 and the frames are big). Larger videos are refused.
+// on PS4 and the frames are big).
 const int MAX_FRAME_W = 1920, MAX_FRAME_H = 1088;
 const size_t FRAME_BYTES = (size_t)MAX_FRAME_W * MAX_FRAME_H * 4;
 const size_t IO_STACK = 1024 * 1024;
@@ -501,22 +501,24 @@ private:
 	}
 
 	void upload_ready_frame() {
-		int w = 0, h = 0;
+		int tw = 0, sw = 0, h = 0;
 		{
 			threads::Lock lock(frame_mutex_);
 			if (!frame_ready_) return;
 			frame_ready_ = false;
 			std::swap(front_, ready_);
-			w = ready_w_;
+			tw = ready_tw_;
+			sw = ready_w_;
 			h = ready_h_;
 		}
-		if (texture_.valid() && texture_.width == w && texture_.height == h) {
+		if (texture_.valid() && texture_.width == tw && texture_.height == h) {
 			glBindTexture(GL_TEXTURE_2D, texture_.id);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffers_[front_]);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, tw, h, GL_RGBA, GL_UNSIGNED_BYTE, buffers_[front_]);
 		} else {
 			if (texture_.valid()) glDeleteTextures(1, &texture_.id);
-			texture_ = make_texture(w, h, buffers_[front_]);
+			texture_ = make_texture(tw, h, buffers_[front_]);
 		}
+		texture_.shown_width = sw;
 	}
 
 	static void *audio_entry(void *p) {
@@ -565,15 +567,29 @@ private:
 		const uint32_t pitch = v.pitch ? v.pitch : align_up(v.width, 64);
 		const int w = (int)(v.width - v.cropLeftOffset - v.cropRightOffset) & ~1;
 		const int h = (int)(v.height - v.cropTopOffset - v.cropBottomOffset) & ~1;
-		if (++frames == 1) platform::log("avplayer: video %ux%u", v.width, v.height);
-		if (w <= 0 || h <= 0 || w > MAX_FRAME_W || h > MAX_FRAME_H) return true;
+		if (++frames == 1) platform::log("avplayer: video stream %ux%u", v.width, v.height);
+		if (w <= 0 || h <= 0 || w > MAX_FRAME_W || h > MAX_FRAME_H) {
+			if (w > MAX_FRAME_W || h > MAX_FRAME_H) {
+				platform::log("avplayer: frame %dx%d exceeds max %dx%d (switch to FFmpeg in Settings)", w, h, MAX_FRAME_W, MAX_FRAME_H);
+			}
+			return true;
+		}
+		const int tw = (w + 31) & ~31;
 		const uint8_t *y_plane = (const uint8_t *)vf.pData;
 		const uint8_t *uv_plane = y_plane + (size_t)pitch * v.height;
 		y_plane += (size_t)v.cropTopOffset * pitch + (v.cropLeftOffset & ~1u);
 		uv_plane += (size_t)(v.cropTopOffset / 2) * pitch + (v.cropLeftOffset & ~1u);
-		nv12::nv12_to_rgba(y_plane, uv_plane, pitch, w, h, v.height >= 720, v.videoFullRangeFlag != 0, buffers_[back]);
+		nv12::convert_rows(nv12::Nv12{ y_plane, uv_plane, pitch, pitch }, w, 0, h, v.height >= 720, v.videoFullRangeFlag != 0,
+				buffers_[back], tw);
+		if (tw > w) {
+			for (int y = 0; y < h; y++) {
+				uint32_t *row = (uint32_t *)(buffers_[back] + (size_t)y * tw * 4);
+				std::fill(row + w, row + tw, row[w - 1]);
+			}
+		}
 		threads::Lock lock(frame_mutex_);
 		std::swap(ready_, back);
+		ready_tw_ = tw;
 		ready_w_ = w;
 		ready_h_ = h;
 		frame_ready_ = true;
@@ -636,6 +652,8 @@ private:
 				b = nullptr;
 			}
 		}
+		ready_ = 0;
+		front_ = 1;
 		frame_ready_ = false;
 		started_ = false;
 		user_paused_ = false;
@@ -665,7 +683,7 @@ private:
 	threads::Mutex frame_mutex_;
 	uint8_t *buffers_[3] = { nullptr, nullptr, nullptr };
 	int ready_ = 0, front_ = 1; // indices; the video thread owns the third
-	int ready_w_ = 0, ready_h_ = 0;
+	int ready_tw_ = 0, ready_w_ = 0, ready_h_ = 0;
 	bool frame_ready_ = false;
 	Texture texture_;
 
