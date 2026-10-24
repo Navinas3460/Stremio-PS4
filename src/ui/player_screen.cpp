@@ -23,20 +23,58 @@ const double OVERLAY_HIDE = 4.0;
 const double REPORT_EVERY = 1.0;
 
 // Panel layout (right side).
-const float PANEL_W = S(900);
-const float PANEL_X = W - PANEL_W;
-const float COL_SUB_X = PANEL_X + S(48), COL_SUB_W = S(470);
-const float COL_AUDIO_X = COL_SUB_X + COL_SUB_W + S(36), COL_AUDIO_W = W - S(48) - (COL_SUB_X + COL_SUB_W + S(36));
-const float LIST_TOP = S(170), ROW_H = S(70), ROW_GAP = S(8);
-const float LIST_BOTTOM = H - S(110);
+float panel_w() { return S(900); }
+float panel_x() { return W - panel_w(); }
+float col_sub_x() { return panel_x() + S(48); }
+float col_sub_w() { return S(470); }
+float col_audio_x() { return col_sub_x() + col_sub_w() + S(36); }
+float col_audio_w() { return W - S(48) - (col_sub_x() + col_sub_w() + S(36)); }
+float list_top() { return S(170); }
+float row_h() { return S(70); }
+float row_gap() { return S(8); }
+float list_bottom() { return H - S(110); }
 // Language tabs in a box over the subtitles column (like the tab bar's
 // daisyUI "tabs-box"); the column starts below it.
-const float LANG_TAB_H = S(44), LANG_TAB_GAP = S(6), LANG_BOX_PAD = S(6);
-const float LANG_BOX_H = LANG_TAB_H + 2 * LANG_BOX_PAD, LANG_TABS_W = COL_SUB_W - 2 * LANG_BOX_PAD;
-const float SUB_LIST_TOP = LIST_TOP + LANG_BOX_H + S(16);
+float lang_tab_h() { return S(44); }
+float lang_tab_gap() { return S(6); }
+float lang_box_pad() { return S(6); }
+float lang_box_h() { return lang_tab_h() + 2 * lang_box_pad(); }
+float lang_tabs_w() { return col_sub_w() - 2 * lang_box_pad(); }
+float sub_list_top() { return list_top() + lang_box_h() + S(16); }
 
 const char *PREF_SUB = "subtitle_language.txt";
 const char *PREF_AUDIO = "audio_language.txt";
+const char *PREF_ASPECT = "aspect_ratio.txt";
+
+// Aspect ratio modes, cycled with Triangle. Fit and Fill keep the video's own
+// shape (Fill crops it to fill the screen); 16:9, 4:3 and 21:9 force that
+// shape on videos whose aspect information is wrong.
+struct AspectMode {
+	const char *name;
+	float ratio; // forced width / height, or 0
+};
+const AspectMode ASPECTS[] = { { "Fit", 0 }, { "Fill", 0 }, { "Stretch", 0 }, { "16:9", 16.0f / 9 }, { "4:3", 4.0f / 3 },
+	{ "21:9", 21.0f / 9 } };
+const int FILL = 1, STRETCH = 2, ASPECT_COUNT = sizeof(ASPECTS) / sizeof(ASPECTS[0]);
+
+// Where the picture goes on screen in aspect mode `mode`.
+void picture_rect(int mode, const Texture &frame, float &x, float &y, float &w, float &h) {
+	if (mode == STRETCH) {
+		x = y = 0;
+		w = W;
+		h = H;
+		return;
+	}
+	const float aspect = ASPECTS[mode].ratio > 0 ? ASPECTS[mode].ratio : (float)frame.picture_width() / frame.height;
+	w = W;
+	h = W / aspect;
+	if ((h > H) != (mode == FILL)) { // Fill covers the screen, the others fit in it
+		h = H;
+		w = H * aspect;
+	}
+	x = (W - w) / 2;
+	y = (H - h) / 2;
+}
 
 std::string format_time(double seconds) {
 	const int s = (int)std::max(0.0, seconds);
@@ -85,6 +123,10 @@ PlayerScreen::PlayerScreen(Fonts &fonts, Navigator &nav, const Args &args)
 	overlay_timer_ = OVERLAY_HIDE;
 	pref_sub_lang_ = read_pref(PREF_SUB);
 	pref_audio_lang_ = read_pref(PREF_AUDIO);
+	const std::string aspect = read_pref(PREF_ASPECT);
+	for (int i = 0; i < ASPECT_COUNT; i++) {
+		if (aspect == ASPECTS[i].name) aspect_ = i;
+	}
 	rebuild_subtitle_options();
 
 	// Subtitles from add-ons (OpenSubtitles etc.), matched to this file when
@@ -187,7 +229,7 @@ void PlayerScreen::rebuild_subtitle_options() {
 	for (LanguageTab &t : tabs) {
 		t.w = ui::chip_width(fonts_.small, t.label);
 		t.x = x;
-		x += t.w + LANG_TAB_GAP;
+		x += t.w + lang_tab_gap();
 	}
 	sub_tabs_.swap(tabs);
 
@@ -211,7 +253,7 @@ void PlayerScreen::show_language_tab(int tab) {
 	if (sub_tabs_first_ > sub_tab_) sub_tabs_first_ = sub_tab_;
 	if (!sub_tabs_.empty()) {
 		const LanguageTab &t = sub_tabs_[sub_tab_];
-		while (sub_tabs_first_ < sub_tab_ && t.x + t.w - sub_tabs_[sub_tabs_first_].x > LANG_TABS_W) sub_tabs_first_++;
+		while (sub_tabs_first_ < sub_tab_ && t.x + t.w - sub_tabs_[sub_tabs_first_].x > lang_tabs_w()) sub_tabs_first_++;
 	}
 	const std::string name = sub_tabs_.empty() ? "" : sub_tabs_[sub_tab_].name;
 	sub_rows_.clear();
@@ -387,6 +429,11 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 			if (pressed & platform::BUTTON_RIGHT) queue_seek(SEEK_STEP);
 			if (pressed & (platform::BUTTON_UP | platform::BUTTON_OPTIONS)) open_menu();
 			if (pressed & platform::BUTTON_DOWN) show_overlay();
+			if (pressed & platform::BUTTON_TRIANGLE) {
+				aspect_ = (aspect_ + 1) % ASPECT_COUNT;
+				write_pref(PREF_ASPECT, ASPECTS[aspect_].name);
+				toast_.show(std::string("Aspect ratio: ") + ASPECTS[aspect_].name);
+			}
 		}
 	}
 
@@ -414,8 +461,8 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 	overlay_ += (target - overlay_) * std::min(1.0f, (float)dt * 8.0f);
 	menu_ += ((menu_open_ ? 1.0f : 0.0f) - menu_) * std::min(1.0f, (float)dt * 10.0f);
 	for (int i = 0; i < 2; i++) {
-		const float top = i == 0 ? SUB_LIST_TOP : LIST_TOP;
-		columns_[i].scroll = ui::follow(columns_[i].scroll, columns_[i].selected * (ROW_H + ROW_GAP), ROW_H, LIST_BOTTOM - top, dt);
+		const float top = i == 0 ? sub_list_top() : list_top();
+		columns_[i].scroll = ui::follow(columns_[i].scroll, columns_[i].selected * (row_h() + row_gap()), row_h(), list_bottom() - top, dt);
 	}
 	toast_.update(dt);
 }
@@ -451,25 +498,25 @@ void PlayerScreen::draw_subtitles(Renderer &r, float vx, float vy, float vw, flo
 
 void PlayerScreen::draw_menu(Renderer &r) {
 	r.push(W / 2, H / 2, 1.0f, menu_); // fades in and out as a whole
-	r.rect(PANEL_X, 0, PANEL_W, H, theme::BASE_100.with_alpha(0.94f));
-	r.text(fonts_.page_header, "Audio & subtitles", COL_SUB_X, S(96), theme::BASE_CONTENT);
+	r.rect(panel_x(), 0, panel_w(), H, theme::BASE_100.with_alpha(0.94f));
+	r.text(fonts_.page_header, "Audio & subtitles", col_sub_x(), S(96), theme::BASE_CONTENT);
 
 	auto column = [&](int index, const char *title, float x, float w, float top,
 						  const std::vector<std::pair<std::string, std::string>> &rows, int active) {
 		const bool focused = menu_column_ == index;
-		r.text(fonts_.section, title, x, LIST_TOP - S(24), focused ? theme::BASE_CONTENT : theme::BASE_CONTENT_MUTED);
+		r.text(fonts_.section, title, x, list_top() - S(24), focused ? theme::BASE_CONTENT : theme::BASE_CONTENT_MUTED);
 		const Column &col = columns_[index];
-		const float R = theme::RADIUS_FIELD;
+		const float R = theme::radius_field();
 		for (int i = 0; i < (int)rows.size(); i++) {
-			const float y = top + i * (ROW_H + ROW_GAP) - col.scroll;
-			if (y + ROW_H < top - S(4) || y > LIST_BOTTOM) continue;
+			const float y = top + i * (row_h() + row_gap()) - col.scroll;
+			if (y + row_h() < top - S(4) || y > list_bottom()) continue;
 			const float sel = (focused && i == col.selected) ? 1.0f : 0.0f;
-			ui::begin_focus(r, x, y, w, ROW_H, R, sel, 1.0f);
-			r.rounded_rect(x, y, w, ROW_H, R, mix(theme::BASE_200, theme::PRIMARY, 0.3f * sel));
-			if (i == active) ui::status(r, x + S(26), y + ROW_H / 2); // the track in use
+			ui::begin_focus(r, x, y, w, row_h(), R, sel, 1.0f);
+			r.rounded_rect(x, y, w, row_h(), R, mix(theme::BASE_200, theme::PRIMARY, 0.3f * sel));
+			if (i == active) ui::status(r, x + S(26), y + row_h() / 2); // the track in use
 			const float tx = x + S(46), tw = w - (tx - x) - S(16);
 			const bool two_lines = !rows[i].second.empty();
-			const float label_y = two_lines ? y + S(31) : y + ROW_H / 2 + S(9);
+			const float label_y = two_lines ? y + S(31) : y + row_h() / 2 + S(9);
 			r.text(fonts_.card_title, fonts_.card_title.ellipsize(rows[i].first, tw), tx, label_y, theme::BASE_CONTENT);
 			if (two_lines) {
 				r.text(fonts_.small, fonts_.small.ellipsize(rows[i].second, tw), tx, y + S(56), theme::BASE_CONTENT_MUTED);
@@ -497,57 +544,49 @@ void PlayerScreen::draw_menu(Renderer &r) {
 		}
 		if (audio_tracks_[i].id == player_->audio_track()) active_audio = i;
 	}
-	column(0, "Subtitles", COL_SUB_X, COL_SUB_W, SUB_LIST_TOP, subs, active_sub);
-	column(1, "Audio", COL_AUDIO_X, COL_AUDIO_W, LIST_TOP, audio, active_audio);
+	column(0, "Subtitles", col_sub_x(), col_sub_w(), sub_list_top(), subs, active_sub);
+	column(1, "Audio", col_audio_x(), col_audio_w(), list_top(), audio, active_audio);
 
 	// Language tabs in their box over the subtitles column: the ones that fit,
 	// widened to fill it, with "<" / ">" on the side of the others.
 	int last = sub_tabs_first_;
 	while (last + 1 < (int)sub_tabs_.size() &&
-			sub_tabs_[last + 1].x + sub_tabs_[last + 1].w - sub_tabs_[sub_tabs_first_].x <= LANG_TABS_W) {
+			sub_tabs_[last + 1].x + sub_tabs_[last + 1].w - sub_tabs_[sub_tabs_first_].x <= lang_tabs_w()) {
 		last++;
 	}
 	const bool more_left = sub_tabs_first_ > 0, more_right = last + 1 < (int)sub_tabs_.size();
 	if (!sub_tabs_.empty()) {
-		r.rounded_rect(COL_SUB_X, LIST_TOP, COL_SUB_W, LANG_BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
+		r.rounded_rect(col_sub_x(), list_top(), col_sub_w(), lang_box_h(), theme::radius_selector(), theme::BASE_200);
 		const int shown = last - sub_tabs_first_ + 1;
 		const float used = sub_tabs_[last].x + sub_tabs_[last].w - sub_tabs_[sub_tabs_first_].x;
-		const float extra = std::max(0.0f, LANG_TABS_W - used) / shown;
-		float x = COL_SUB_X + LANG_BOX_PAD;
+		const float extra = std::max(0.0f, lang_tabs_w() - used) / shown;
+		float x = col_sub_x() + lang_box_pad();
 		for (int i = sub_tabs_first_; i <= last; i++) {
 			const LanguageTab &t = sub_tabs_[i];
-			ui::chip(r, fonts_.small, t.label, x, LIST_TOP + LANG_BOX_PAD, t.w + extra, LANG_TAB_H, i == sub_tab_, 0.0f, theme::BASE_200);
-			x += t.w + extra + LANG_TAB_GAP;
+			ui::chip(r, fonts_.small, t.label, x, list_top() + lang_box_pad(), t.w + extra, lang_tab_h(), i == sub_tab_, 0.0f, theme::BASE_200);
+			x += t.w + extra + lang_tab_gap();
 		}
 	}
-	const float arrow_y = LIST_TOP + LANG_BOX_H / 2 + fonts_.body.size() * 0.36f;
-	if (more_left) r.text(fonts_.body, "<", COL_SUB_X - S(10) - fonts_.body.measure("<"), arrow_y, theme::BASE_CONTENT_MUTED);
-	if (more_right) r.text(fonts_.body, ">", COL_SUB_X + COL_SUB_W + S(10), arrow_y, theme::BASE_CONTENT_MUTED);
+	const float arrow_y = list_top() + lang_box_h() / 2 + fonts_.body.size() * 0.36f;
+	if (more_left) r.text(fonts_.body, "<", col_sub_x() - S(10) - fonts_.body.measure("<"), arrow_y, theme::BASE_CONTENT_MUTED);
+	if (more_right) r.text(fonts_.body, ">", col_sub_x() + col_sub_w() + S(10), arrow_y, theme::BASE_CONTENT_MUTED);
 
 	std::vector<ui::Hint> hints = { { "\xC3\x97", "Select" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Column" } };
 	if (sub_tabs_.size() > 1) hints.push_back({ "L1 R1", "Language" });
 	hints.push_back({ "\xE2\x97\x8B", "Close" });
-	ui::hints(r, fonts_.small, hints, COL_SUB_X, H - S(52));
+	ui::hints(r, fonts_.small, hints, col_sub_x(), H - S(52));
 	r.pop();
 }
 
 void PlayerScreen::draw(Renderer &r) {
 	r.rect(0, 0, W, H, rgb(0x000000));
 
-	// Video, letterboxed to keep its aspect ratio.
+	// Video, in the chosen aspect ratio mode.
 	const Texture &frame = player_->frame();
 	float vx = 0, vy = 0, vw = W, vh = H;
 	if (frame.valid()) {
-		const float aspect = (float)frame.picture_width() / frame.height;
-		vw = W;
-		vh = W / aspect;
-		if (vh > H) {
-			vh = H;
-			vw = H * aspect;
-		}
-		vx = (W - vw) / 2;
-		vy = (H - vh) / 2;
-		r.image_cover(frame, vx, vy, vw, vh);
+		picture_rect(aspect_, frame, vx, vy, vw, vh);
+		r.image_stretch(frame, vx, vy, vw, vh);
 	}
 
 	// Status in the middle.
@@ -597,7 +636,7 @@ void PlayerScreen::draw(Renderer &r) {
 		const std::string total = format_time(duration);
 		r.text(fonts_.body, total, right - fonts_.body.measure(total), ty, theme::BASE_CONTENT);
 		const std::vector<ui::Hint> hints = { { "\xC3\x97", "Play / Pause" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Seek" },
-			{ "\xE2\x96\xB2", "Audio & subtitles" }, { "\xE2\x97\x8B", "Back" } };
+			{ "\xE2\x96\xB2", "Audio & subtitles" }, { "\xE2\x96\xB3", "Aspect ratio" }, { "\xE2\x97\x8B", "Back" } };
 		ui::hints(r, fonts_.small, hints, (W - ui::hints_width(fonts_.small, hints)) / 2, ty);
 		r.pop();
 	}

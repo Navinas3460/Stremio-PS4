@@ -14,15 +14,20 @@ using theme::S;
 
 const float W = 1920;
 const float MARGIN_X = 120;
-const float TOP = S(150);
-const float KEY = S(64), KEY_GAP = S(8);
-const int KEY_COLS = 6;
-const float KB_W = KEY_COLS * KEY + (KEY_COLS - 1) * KEY_GAP;
-const float QUERY_H = S(72);
-const float KEYS_TOP = TOP + QUERY_H + S(24);
-const float RESULTS_X = MARGIN_X + KB_W + S(64);
-const float VIEW_W = W - MARGIN_X - RESULTS_X;
-const CardRowLayout LAYOUT = { S(330), S(186), S(22), S(56), S(290), S(100) };
+float content_top() { return S(150); }
+const int KEY_COLS = 6, KEY_ROWS = 7; // a-z and 0-9, then Space / Delete / Clear
+float key_gap() { return S(8); }
+float query_h() { return S(72); }
+float keys_top() { return content_top() + query_h() + S(24); }
+// Smaller at large UI scales, so the keyboard and its hints fit above the tab bar.
+float key() {
+	const float fit = (tabs::content_bottom() - S(50) - keys_top() - KEY_ROWS * key_gap()) / KEY_ROWS;
+	return std::min(S(64), fit);
+}
+float kb_w() { return KEY_COLS * key() + (KEY_COLS - 1) * key_gap(); }
+float results_x() { return MARGIN_X + kb_w() + S(64); }
+float view_w() { return W - MARGIN_X - results_x(); }
+CardRowLayout layout() { return { S(330), S(186), S(22), S(56), S(290), S(100) }; }
 const float SEARCH_DELAY = 0.6f;
 
 } // namespace
@@ -167,11 +172,11 @@ void SearchScreen::update(double dt, uint32_t pressed) {
 	for (int i = 0; i < (int)keys_.size(); i++) {
 		keys_[i].focus = ui::approach(keys_[i].focus, (area_ == KEYBOARD && i == key_) ? 1.0f : 0.0f, dt);
 	}
-	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], area_ == RESULTS && r == row_, LAYOUT, VIEW_W, dt);
+	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], area_ == RESULTS && r == row_, layout(), view_w(), dt);
 	// Keep the focused row in view.
 	float top = 0;
-	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += row_height(rows_[i], LAYOUT);
-	content_scroll_ = ui::follow(content_scroll_, top, LAYOUT.height, tabs::CONTENT_BOTTOM - TOP, dt);
+	for (int i = 0; i < row_ && i < (int)rows_.size(); i++) top += row_height(rows_[i], layout());
+	content_scroll_ = ui::follow(content_scroll_, top, layout().height, tabs::content_bottom() - content_top(), dt);
 	bar_.update(dt, area_ == BAR);
 }
 
@@ -181,48 +186,48 @@ void SearchScreen::draw(Renderer &r) {
 		const bool searching = search_delay_ > 0 || query_ != stremio().search_query();
 		const std::string hint = query_.empty() ? "Search for movies and series with the keyboard"
 				: searching ? "" : "No results for \"" + query_ + "\"";
-		r.text(fonts_.body, fonts_.body.ellipsize(hint, VIEW_W), RESULTS_X, TOP + S(40), theme::BASE_CONTENT_MUTED);
+		r.text(fonts_.body, fonts_.body.ellipsize(hint, view_w()), results_x(), content_top() + S(40), theme::BASE_CONTENT_MUTED);
 	}
-	float y = TOP - content_scroll_;
+	float y = content_top() - content_scroll_;
 	for (const CardRow &row : rows_) {
-		const float h = row_height(row, LAYOUT);
-		if (y < tabs::CONTENT_BOTTOM && y + h > 0) draw_row(r, fonts_, row, LAYOUT, RESULTS_X, y, VIEW_W);
+		const float h = row_height(row, layout());
+		if (y < tabs::content_bottom() && y + h > 0) draw_row(r, fonts_, row, layout(), results_x(), y, view_w());
 		y += h;
 	}
 
 	// Left band: query + keyboard (covers cards scrolled to the left).
-	r.rect(0, TOP - S(10), RESULTS_X - S(24), tabs::CONTENT_BOTTOM - TOP + S(10), theme::BASE_100);
-	r.rect(0, 0, W, TOP - S(10), theme::BASE_100);
+	r.rect(0, content_top() - S(10), results_x() - S(24), tabs::content_bottom() - content_top() + S(10), theme::BASE_100);
+	r.rect(0, 0, W, content_top() - S(10), theme::BASE_100);
 	r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::BASE_CONTENT);
 
 	// The query field (daisyUI input): ringed while typing.
 	const float ring = area_ == KEYBOARD ? 1.0f : 0.0f;
-	ui::begin_focus(r, MARGIN_X, TOP, KB_W, QUERY_H, theme::RADIUS_FIELD, ring, 1.0f, theme::BASE_300);
-	r.rounded_rect(MARGIN_X, TOP, KB_W, QUERY_H, theme::RADIUS_FIELD, theme::BASE_200);
+	ui::begin_focus(r, MARGIN_X, content_top(), kb_w(), query_h(), theme::radius_field(), ring, 1.0f, theme::BASE_300);
+	r.rounded_rect(MARGIN_X, content_top(), kb_w(), query_h(), theme::radius_field(), theme::BASE_200);
 	r.pop();
-	const float qx = MARGIN_X + S(20), qy = TOP + QUERY_H / 2 + S(10);
+	const float qx = MARGIN_X + S(20), qy = content_top() + query_h() / 2 + S(10);
 	if (query_.empty()) {
 		r.text(fonts_.card_title, "Type a title", qx, qy, theme::BASE_CONTENT_MUTED);
 	} else {
 		const std::string shown = query_.size() > 26 ? "\xE2\x80\xA6" + query_.substr(query_.size() - 25) : query_;
 		r.text(fonts_.card_title, shown, qx, qy, theme::BASE_CONTENT);
 		if (std::fmod(cursor_time_, 1.0f) < 0.6f) {
-			r.rect(qx + fonts_.card_title.measure(shown) + S(3), TOP + S(18), S(3), QUERY_H - S(36), theme::PRIMARY);
+			r.rect(qx + fonts_.card_title.measure(shown) + S(3), content_top() + S(18), S(3), query_h() - S(36), theme::PRIMARY);
 		}
 	}
 
 	for (const Key &k : keys_) {
-		const float x = MARGIN_X + k.col * (KEY + KEY_GAP);
-		const float ky = KEYS_TOP + k.row * (KEY + KEY_GAP);
-		const float w = k.span * KEY + (k.span - 1) * KEY_GAP;
+		const float x = MARGIN_X + k.col * (key() + key_gap());
+		const float ky = keys_top() + k.row * (key() + key_gap());
+		const float w = k.span * key() + (k.span - 1) * key_gap();
 		const float f = k.focus;
-		ui::begin_focus(r, x, ky, w, KEY, theme::RADIUS_FIELD, f);
-		r.rounded_rect(x, ky, w, KEY, theme::RADIUS_FIELD, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
+		ui::begin_focus(r, x, ky, w, key(), theme::radius_field(), f);
+		r.rounded_rect(x, ky, w, key(), theme::radius_field(), mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
 		Font &font = k.span > 1 ? fonts_.body : fonts_.card_title;
-		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + KEY / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
+		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + key() / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
 		r.pop(); // keys stay bright: the whole keyboard is one control
 	}
-	const float hint_y = KEYS_TOP + (keys_.back().row + 1) * (KEY + KEY_GAP) + S(30);
+	const float hint_y = keys_top() + (keys_.back().row + 1) * (key() + key_gap()) + S(30);
 	ui::hints(r, fonts_.small, { { "\xE2\x97\x8B", "Delete" }, { "\xE2\x96\xB6", "Results" } }, MARGIN_X, hint_y);
 
 	bar_.draw(r, fonts_);

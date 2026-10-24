@@ -52,6 +52,8 @@ public:
 	void rounded_rect(float x, float y, float w, float h, float radius, const Color &c);
 	// Image scaled to cover the box (cropped, like "keep aspect covered").
 	void image_cover(const Texture &t, float x, float y, float w, float h, float alpha = 1.0f);
+	// The whole image stretched to the box (the video, in its aspect ratio modes).
+	void image_stretch(const Texture &t, float x, float y, float w, float h);
 	// Rounds an image's corners by drawing `background`-coloured caps over
 	// them (works on solid backgrounds, which is all the UI uses).
 	void round_corners(float x, float y, float w, float h, float radius, const Color &background);

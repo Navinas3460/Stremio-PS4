@@ -13,12 +13,14 @@ namespace tabs {
 
 enum Tab { HOME, SEARCH, LIBRARY, SETTINGS, COUNT };
 
-// Layout shared by the tab screens: content goes above CONTENT_BOTTOM.
+// Layout shared by the tab screens: content goes above content_bottom().
 // The tabs sit in one pill-shaped box (daisyUI "tabs-box").
-constexpr float TAB_W = theme::S(190), TAB_H = theme::S(68), BOX_PAD = theme::S(10);
-constexpr float BOX_H = TAB_H + 2 * BOX_PAD;
-constexpr float BOX_Y = 1080 - 40 - BOX_H;
-constexpr float CONTENT_BOTTOM = BOX_Y - theme::S(22);
+inline float tab_w() { return theme::S(190); }
+inline float tab_h() { return theme::S(68); }
+inline float box_pad() { return theme::S(10); }
+inline float box_h() { return tab_h() + 2 * box_pad(); }
+inline float box_y() { return 1080 - 40 - box_h(); }
+inline float content_bottom() { return box_y() - theme::S(22); }
 
 // Shows `tab` as the bottom screen.
 void open(Tab tab, Fonts &fonts, Navigator &nav);

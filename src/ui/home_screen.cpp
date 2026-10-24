@@ -13,9 +13,9 @@ using theme::S;
 
 const float W = 1920;
 const float MARGIN_X = 120;
-const float ROWS_TOP = S(150); // first row's title top
+float rows_top() { return S(150); } // first row's title top
 const float VIEW_W = W - 2 * MARGIN_X;
-const CardRowLayout LAYOUT = { S(520), S(292), S(28), S(62), S(400), S(110) };
+CardRowLayout layout() { return { S(520), S(292), S(28), S(62), S(400), S(110) }; }
 
 } // namespace
 
@@ -95,7 +95,7 @@ void HomeScreen::rebuild_rows() {
 
 float HomeScreen::row_top(int index) const {
 	float y = 0;
-	for (int i = 0; i < index; i++) y += row_height(rows_[i], LAYOUT);
+	for (int i = 0; i < index; i++) y += row_height(rows_[i], layout());
 	return y;
 }
 
@@ -140,11 +140,11 @@ void HomeScreen::update(double dt, uint32_t pressed) {
 		open_details(rows_[focus_row_].cards[rows_[focus_row_].selected], fonts_, navigator_);
 	}
 
-	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], r == focus_row_, LAYOUT, VIEW_W, dt);
+	for (int r = 0; r < (int)rows_.size(); r++) update_row(rows_[r], r == focus_row_, layout(), VIEW_W, dt);
 	bar_.update(dt, focus_row_ < 0);
 	if (focus_row_ >= 0) {
-		content_scroll_ = ui::follow(content_scroll_, row_top(focus_row_), row_height(rows_[focus_row_], LAYOUT),
-				tabs::CONTENT_BOTTOM - ROWS_TOP, dt);
+		content_scroll_ = ui::follow(content_scroll_, row_top(focus_row_), row_height(rows_[focus_row_], layout()),
+				tabs::content_bottom() - rows_top(), dt);
 	}
 
 #if defined(STREMIO_DEV)
@@ -161,15 +161,15 @@ void HomeScreen::update(double dt, uint32_t pressed) {
 // --- drawing --------------------------------------------------------------------------
 
 void HomeScreen::draw(Renderer &r) {
-	float y = ROWS_TOP - content_scroll_;
+	float y = rows_top() - content_scroll_;
 	for (const CardRow &row : rows_) {
-		const float h = row_height(row, LAYOUT);
-		if (y < tabs::CONTENT_BOTTOM && y + h > 0) draw_row(r, fonts_, row, LAYOUT, MARGIN_X, y, VIEW_W);
+		const float h = row_height(row, layout());
+		if (y < tabs::content_bottom() && y + h > 0) draw_row(r, fonts_, row, layout(), MARGIN_X, y, VIEW_W);
 		y += h;
 	}
 
 	// Header band: title, and the account (avatar + email) on the right.
-	r.rect(0, 0, W, ROWS_TOP - 8, theme::BASE_100);
+	r.rect(0, 0, W, rows_top() - 8, theme::BASE_100);
 	r.text(fonts_.page_header, "Stremio", MARGIN_X, S(96), theme::BASE_CONTENT);
 	const std::string email = stremio().user_email();
 	const float email_x = W - MARGIN_X - fonts_.body.measure(email);

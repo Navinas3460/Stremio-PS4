@@ -1,4 +1,4 @@
-// Settings tab: account (sign out), video player choice, build info.
+// Settings tab: account (sign out), UI scale, video player choice, build info.
 #pragma once
 
 #include "screen.h"
@@ -14,13 +14,16 @@ public:
 	void draw(Renderer &r) override;
 
 private:
+	enum Action { SIGN_OUT, UI_SCALE, VIDEO_PLAYER };
 	struct Item {
+		Action action;
 		std::string label, value;
 		bool danger = false; // daisyUI btn-error look (sign-out confirmation)
 		float focus = 0;
 	};
 	void refresh_items();
 	void activate();
+	void step_scale(int steps);
 
 	Fonts &fonts_;
 	Navigator &navigator_;

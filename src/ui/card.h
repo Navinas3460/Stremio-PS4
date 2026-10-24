@@ -26,9 +26,9 @@ struct Card {
 void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h);
 
 // Poster card (Library): portrait artwork with the progress bar and badge on
-// it, and the title and subtitle in POSTER_CAPTION_H below it (over the
+// it, and the title and subtitle in poster_caption_h() below it (over the
 // artwork they'd clash with the title printed on most posters).
-constexpr float POSTER_CAPTION_H = theme::S(84);
+inline float poster_caption_h() { return theme::S(84); }
 void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h);
 
 // Pushes the details screen for `c`.

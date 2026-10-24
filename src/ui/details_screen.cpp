@@ -15,15 +15,18 @@ using theme::S;
 
 const float W = 1920, H = 1080;
 const float MARGIN = 120;
-const float ROW_H = S(84), ROW_GAP = S(10);
-const float LISTS_TOP = S(330);               // "Episodes" / "Streams" titles
-const float LIST_Y = LISTS_TOP + S(30);
-const float LIST_H = H - S(90) - LIST_Y;
+float row_h() { return S(84); }
+float row_gap() { return S(10); }
+float lists_top() { return S(330); } // "Episodes" / "Streams" titles
+float list_y() { return lists_top() + S(30); }
+float list_h() { return H - S(90) - list_y(); }
 // Add-on filter: a smaller version of the home tab bar, over the streams.
-const float CHIP_H = S(46), CHIP_MIN_W = S(110), BOX_PAD = S(6);
-const float BOX_H = CHIP_H + 2 * BOX_PAD;
-const float FILTER_SPACE = BOX_H + S(18); // taken from the top of the streams list
-const float CAPS_W = S(110);              // the L1 / R1 marks after the box
+float chip_h() { return S(46); }
+float chip_min_w() { return S(110); }
+float box_pad() { return S(6); }
+float box_h() { return chip_h() + 2 * box_pad(); }
+float filter_space() { return box_h() + S(18); } // taken from the top of the streams list
+float caps_w() { return S(110); } // the L1 / R1 marks after the box
 
 // Add-ons decorate stream names with emoji; Inter (and the PS4, which has no
 // font fallback) can't draw them, so drop those code points. Flags (pairs of
@@ -176,8 +179,8 @@ void DetailsScreen::refilter() {
 
 std::vector<float> DetailsScreen::filter_widths() {
 	std::vector<float> w;
-	w.push_back(std::max(CHIP_MIN_W, ui::chip_width(fonts_.body, "All")));
-	for (const std::string &a : addons_) w.push_back(std::max(CHIP_MIN_W, ui::chip_width(fonts_.body, clean(a))));
+	w.push_back(std::max(chip_min_w(), ui::chip_width(fonts_.body, "All")));
+	for (const std::string &a : addons_) w.push_back(std::max(chip_min_w(), ui::chip_width(fonts_.body, clean(a))));
 	return w;
 }
 
@@ -271,8 +274,8 @@ void DetailsScreen::update(double dt, uint32_t pressed) {
 			const bool focused = c == column_ && (int)i == l.selected && !(c == 1 && filter_focused_);
 			l.focus[i] = ui::approach(l.focus[i], focused ? 1.0f : 0.0f, dt);
 		}
-		const float view = c == 1 && has_filter() ? LIST_H - FILTER_SPACE : LIST_H;
-		l.scroll = ui::follow(l.scroll, l.selected * (ROW_H + ROW_GAP), ROW_H, view, dt);
+		const float view = c == 1 && has_filter() ? list_h() - filter_space() : list_h();
+		l.scroll = ui::follow(l.scroll, l.selected * (row_h() + row_gap()), row_h(), view, dt);
 	}
 	filter_focus_.resize(filters, 0.0f);
 	for (int i = 0; i < filters; i++) {
@@ -283,7 +286,7 @@ void DetailsScreen::update(double dt, uint32_t pressed) {
 		float start = 0;
 		for (int i = 0; i < filter_; i++) start += w[i];
 		const float sx = has_episodes ? MARGIN + S(560) + S(48) : MARGIN;
-		const float view = W - MARGIN - sx - CAPS_W - 2 * BOX_PAD;
+		const float view = W - MARGIN - sx - caps_w() - 2 * box_pad();
 		filter_scroll_ = ui::follow(filter_scroll_, start, w[filter_], view, dt);
 	}
 	toast_.update(dt);
@@ -291,30 +294,30 @@ void DetailsScreen::update(double dt, uint32_t pressed) {
 
 void DetailsScreen::draw_list(Renderer &r, ListState &list, const std::vector<ListRow> &rows, int active, float x,
 		float y, float w, float h) {
-	const float R = theme::RADIUS_FIELD, pad = S(22);
+	const float R = theme::radius_field(), pad = S(22);
 	for (size_t i = 0; i < rows.size(); i++) {
-		const float ry = y + i * (ROW_H + ROW_GAP) - list.scroll;
-		if (ry < y - S(6) || ry + ROW_H > y + h + S(6)) continue; // only whole rows (the hint line is below)
+		const float ry = y + i * (row_h() + row_gap()) - list.scroll;
+		if (ry < y - S(6) || ry + row_h() > y + h + S(6)) continue; // only whole rows (the hint line is below)
 		const ListRow &row = rows[i];
 		const float f = i < list.focus.size() ? list.focus[i] : 0.0f;
-		ui::begin_focus(r, x, ry, w, ROW_H, R, f, 1.03f);
-		r.rounded_rect(x, ry, w, ROW_H, R, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
+		ui::begin_focus(r, x, ry, w, row_h(), R, f, 1.03f);
+		r.rounded_rect(x, ry, w, row_h(), R, mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
 		float tx = x + pad;
 		if ((int)i == active) { // e.g. the episode whose streams are listed
-			ui::status(r, tx + S(6), ry + ROW_H / 2);
+			ui::status(r, tx + S(6), ry + row_h() / 2);
 			tx += S(26);
 		}
 		float tw = w - (tx - x) - pad;
 		const Color title = row.muted ? theme::BASE_CONTENT_MUTED : theme::BASE_CONTENT;
 		if (!row.badge.empty()) { // right end of the first line
 			const float bw = ui::badge_width(fonts_.small, row.badge), bh = ui::badge_height(fonts_.small);
-			const float by = (row.line2.empty() ? ry + ROW_H / 2 : ry + S(36) - fonts_.card_title.size() * 0.36f) - bh / 2;
+			const float by = (row.line2.empty() ? ry + row_h() / 2 : ry + S(36) - fonts_.card_title.size() * 0.36f) - bh / 2;
 			ui::badge(r, fonts_.small, row.badge, x + w - pad - bw, by, row.badge_bg, theme::BASE_100);
 			tw -= bw + S(16);
 		}
 		if (!row.note.empty()) {
 			const float nw = fonts_.body.measure(row.note);
-			r.text(fonts_.body, row.note, tx + tw - nw, row.line2.empty() ? ry + ROW_H / 2 + S(8) : ry + S(36),
+			r.text(fonts_.body, row.note, tx + tw - nw, row.line2.empty() ? ry + row_h() / 2 + S(8) : ry + S(36),
 					theme::BASE_CONTENT_MUTED);
 			tw -= nw + S(20);
 		}
@@ -322,9 +325,9 @@ void DetailsScreen::draw_list(Renderer &r, ListState &list, const std::vector<Li
 			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + S(36), title);
 			r.text(fonts_.body, fonts_.body.ellipsize(row.line2, w - (tx - x) - pad), tx, ry + S(66), theme::BASE_CONTENT_MUTED);
 		} else {
-			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + ROW_H / 2 + S(9), title);
+			r.text(fonts_.card_title, fonts_.card_title.ellipsize(row.line1, tw), tx, ry + row_h() / 2 + S(9), title);
 		}
-		ui::end_focus(r, x, ry, w, ROW_H, R, f);
+		ui::end_focus(r, x, ry, w, row_h(), R, f);
 	}
 }
 
@@ -332,23 +335,23 @@ void DetailsScreen::draw_filter(Renderer &r, float x, float y, float w) {
 	const std::vector<float> widths = filter_widths();
 	float total = 0;
 	for (float cw : widths) total += cw;
-	const float box_w = std::min(total + 2 * BOX_PAD, w - CAPS_W);
-	const float scroll = total + 2 * BOX_PAD > box_w ? filter_scroll_ : 0;
-	r.rounded_rect(x, y, box_w, BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
+	const float box_w = std::min(total + 2 * box_pad(), w - caps_w());
+	const float scroll = total + 2 * box_pad() > box_w ? filter_scroll_ : 0;
+	r.rounded_rect(x, y, box_w, box_h(), theme::radius_selector(), theme::BASE_200);
 	// The focused chip last, so its ring isn't covered by its neighbours.
 	for (int pass = 0; pass < 2; pass++) {
-		float cx = x + BOX_PAD - scroll;
+		float cx = x + box_pad() - scroll;
 		for (size_t i = 0; i < widths.size(); i++) {
 			const float f = i < filter_focus_.size() ? filter_focus_[i] : 0.0f;
-			const bool inside = cx >= x + BOX_PAD - 1 && cx + widths[i] <= x + box_w - BOX_PAD + 1; // only whole chips
+			const bool inside = cx >= x + box_pad() - 1 && cx + widths[i] <= x + box_w - box_pad() + 1; // only whole chips
 			if (inside && (pass == 0) != (f > 0.5f)) {
 				const std::string label = i == 0 ? "All" : clean(addons_[i - 1]);
-				ui::chip(r, fonts_.body, label, cx, y + BOX_PAD, widths[i], CHIP_H, (int)i == filter_, f, theme::BASE_200);
+				ui::chip(r, fonts_.body, label, cx, y + box_pad(), widths[i], chip_h(), (int)i == filter_, f, theme::BASE_200);
 			}
 			cx += widths[i];
 		}
 	}
-	const float hy = y + BOX_H / 2 + fonts_.small.size() * 0.36f;
+	const float hy = y + box_h() / 2 + fonts_.small.size() * 0.36f;
 	const float kx = x + box_w + S(18);
 	ui::kbd(r, fonts_.small, "R1", kx + ui::kbd_width(fonts_.small, "L1") + S(8), hy);
 	ui::kbd(r, fonts_.small, "L1", kx, hy);
@@ -386,14 +389,14 @@ void DetailsScreen::draw(Renderer &r) {
 	float streams_x = MARGIN;
 	if (has_episodes) {
 		const float ew = S(560);
-		r.text(fonts_.section, "Episodes", MARGIN, LISTS_TOP, theme::BASE_CONTENT);
+		r.text(fonts_.section, "Episodes", MARGIN, lists_top(), theme::BASE_CONTENT);
 		std::vector<ListRow> rows;
 		int active = -1;
 		for (size_t i = 0; i < meta_.videos.size(); i++) {
 			rows.push_back({ clean(MetaItem::video_label(meta_.videos[i])) });
 			if (meta_.videos[i].id == video_id_) active = (int)i;
 		}
-		draw_list(r, episodes_list_, rows, active, MARGIN, LIST_Y, ew, LIST_H);
+		draw_list(r, episodes_list_, rows, active, MARGIN, list_y(), ew, list_h());
 		streams_x = MARGIN + ew + S(48);
 	}
 
@@ -402,15 +405,15 @@ void DetailsScreen::draw(Renderer &r) {
 		if (const Video *v = meta_.find_video(video_id_)) title += "  \xC2\xB7  " + clean(MetaItem::video_label(*v));
 	}
 	const float sw = W - MARGIN - streams_x;
-	r.text(fonts_.section, fonts_.section.ellipsize(title, sw), streams_x, LISTS_TOP, theme::BASE_CONTENT);
+	r.text(fonts_.section, fonts_.section.ellipsize(title, sw), streams_x, lists_top(), theme::BASE_CONTENT);
 	if (!streams_status_.empty()) {
-		r.text(fonts_.body, streams_status_, streams_x, LISTS_TOP + S(60), theme::BASE_CONTENT_MUTED);
+		r.text(fonts_.body, streams_status_, streams_x, lists_top() + S(60), theme::BASE_CONTENT_MUTED);
 	}
-	float list_y = LIST_Y, list_h = LIST_H;
+	float streams_y = list_y(), streams_h = list_h();
 	if (has_filter()) {
-		draw_filter(r, streams_x, LIST_Y, sw);
-		list_y += FILTER_SPACE;
-		list_h -= FILTER_SPACE;
+		draw_filter(r, streams_x, list_y(), sw);
+		streams_y += filter_space();
+		streams_h -= filter_space();
 	}
 	std::vector<ListRow> rows;
 	for (int i : visible_) {
@@ -426,7 +429,7 @@ void DetailsScreen::draw(Renderer &r) {
 		}
 		rows.push_back(row);
 	}
-	draw_list(r, streams_list_, rows, -1, streams_x, list_y, sw, list_h);
+	draw_list(r, streams_list_, rows, -1, streams_x, streams_y, sw, streams_h);
 
 	const bool saved = stremio().in_library(target_.meta_id);
 	ui::hints(r, fonts_.small,

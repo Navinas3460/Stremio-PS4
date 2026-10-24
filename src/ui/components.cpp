@@ -44,7 +44,7 @@ void begin_focus(Renderer &r, float x, float y, float w, float h, float radius, 
 		const Color &ring) {
 	r.push(x + w / 2, y + h / 2, 1.0f + (scale - 1.0f) * focus, 1.0f);
 	if (focus > 0.02f) {
-		const float t = theme::FOCUS_RING;
+		const float t = theme::focus_ring();
 		r.rounded_rect(x - t, y - t, w + 2 * t, h + 2 * t, radius + t, ring.with_alpha(focus));
 	}
 }
@@ -61,7 +61,7 @@ float chip_width(Font &font, const std::string &label) {
 
 void chip(Renderer &r, Font &font, const std::string &label, float x, float y, float w, float h, bool active,
 		float focus, const Color &behind) {
-	const float R = theme::RADIUS_SELECTOR;
+	const float R = theme::radius_selector();
 	begin_focus(r, x, y, w, h, R, focus, theme::FOCUS_SCALE, active ? theme::SECONDARY : theme::PRIMARY);
 	r.rounded_rect(x, y, w, h, R, active ? theme::PRIMARY : mix(theme::BASE_200, theme::BASE_300, focus));
 	// (Opaque: translucent text would be blended toward the backdrop, not the chip.)
@@ -85,7 +85,7 @@ float badge_width(Font &font, const std::string &text) {
 
 float badge(Renderer &r, Font &font, const std::string &text, float x, float y, const Color &bg, const Color &fg) {
 	const float w = badge_width(font, text), h = badge_height(font);
-	r.rounded_rect(x, y, w, h, theme::RADIUS_SELECTOR, bg);
+	r.rounded_rect(x, y, w, h, theme::radius_selector(), bg);
 	r.text(font, text, x + font.size() * 0.6f, centred_baseline(font, y + h / 2), fg);
 	return w;
 }
@@ -158,7 +158,7 @@ void Toast::draw(Renderer &r, Font &font, float cx, float y) const {
 	const float w = pad + dot + font.size() * 0.6f + font.measure(text_) + pad;
 	const float x = cx - w / 2;
 	r.push(cx, y, 1.0f, std::min(1.0f, time_ / TOAST_FADE));
-	r.rounded_rect(x, y, w, h, theme::RADIUS_FIELD, mix(theme::BASE_200, tone, 0.18f));
+	r.rounded_rect(x, y, w, h, theme::radius_field(), mix(theme::BASE_200, tone, 0.18f));
 	status(r, x + pad + dot / 2, y + h / 2, tone);
 	r.text(font, text_, x + pad + dot + font.size() * 0.6f, centred_baseline(font, y + h / 2), theme::BASE_CONTENT);
 	r.pop();

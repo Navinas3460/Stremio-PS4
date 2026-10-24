@@ -61,11 +61,11 @@ bool load_fonts(Fonts &f) {
 	}
 	fallbacks.push_back(platform::asset_path("fonts/NotoSansCJKsc-Medium.ttf"));
 	Font::set_fallbacks(fallbacks);
-	return f.page_header.load(font("Inter-Bold.ttf"), theme::SIZE_PAGE_HEADER) &&
-			f.section.load(font("Inter-SemiBold.ttf"), theme::SIZE_SECTION_HEADER) &&
-			f.card_title.load(font("Inter-Medium.ttf"), theme::SIZE_CARD_TITLE) &&
-			f.body.load(font("Inter-Regular.ttf"), theme::SIZE_BODY) &&
-			f.small.load(font("Inter-Regular.ttf"), theme::SIZE_SMALL) &&
+	return f.page_header.load(font("Inter-Bold.ttf"), theme::size_page_header()) &&
+			f.section.load(font("Inter-SemiBold.ttf"), theme::size_section_header()) &&
+			f.card_title.load(font("Inter-Medium.ttf"), theme::size_card_title()) &&
+			f.body.load(font("Inter-Regular.ttf"), theme::size_body()) &&
+			f.small.load(font("Inter-Regular.ttf"), theme::size_small()) &&
 			f.subtitle.load(font("Inter-SemiBold.ttf"), theme::SIZE_SUBTITLE);
 }
 
@@ -80,6 +80,7 @@ int main() {
 	static Fonts fonts; // large (glyph atlases); keep off the stack
 	bool ok = renderer.init(WIDTH, HEIGHT);
 	platform::log("renderer init: %d", ok);
+	theme::load_ui_scale();
 	ok = ok && load_fonts(fonts);
 	platform::log("fonts: %d", ok);
 	ok = ok && http::init(HTTP_WORKERS);

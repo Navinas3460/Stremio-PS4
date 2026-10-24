@@ -27,7 +27,7 @@ void LoginScreen::draw(Renderer &r) {
 	const float qr = 396, pad = S(24);
 	const float panel = qr + 2 * pad;
 	const float panel_x = W - 240 - panel, panel_y = (H - panel) / 2;
-	r.rounded_rect(panel_x, panel_y, panel, panel, theme::RADIUS_BOX, rgb(0xFFFFFF));
+	r.rounded_rect(panel_x, panel_y, panel, panel, theme::radius_box(), rgb(0xFFFFFF));
 	const Texture &code = images::get(link.qr_url);
 	if (code.valid()) {
 		r.image_cover(code, panel_x + pad, panel_y + pad, qr, qr);

@@ -33,7 +33,10 @@ itself.
     or from subtitle add-ons such as OpenSubtitles, grouped into one tab
     per language.
   - Audio track selection.
-  - Remembers your subtitle and audio languages.
+  - Aspect ratio modes: Fit, Fill (crops to fill the screen), Stretch, and
+    forced 16:9, 4:3 or 21:9.
+  - Remembers your subtitle and audio languages and the aspect ratio.
+- **Adjustable UI scale** (80–130%) in Settings, applied as you change it.
 - **Synced with your account:** watch progress is saved to your Stremio
   library, so you can continue on any device.
 
@@ -63,6 +66,8 @@ itself.
 | L1 / R1 | Previous / next tab (Home, Search, Library, Settings); on a details page, the add-on filter; in Audio & subtitles, the subtitle language |
 | ◀ ▶ (in the player) | Seek 10 s (presses add up) |
 | ▲ (in the player) | Audio & subtitles |
+| △ (in the player) | Aspect ratio |
+| ◀ ▶ (on Settings' UI scale) | Smaller / larger; × resets to 100% |
 
 ## Limitations
 

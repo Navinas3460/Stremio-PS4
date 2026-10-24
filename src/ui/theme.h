@@ -22,24 +22,32 @@ inline const Color ACCENT_CONTENT = BASE_100;
 inline const Color WARNING = rgb(0xF2C14E);
 inline const Color ERROR = rgb(0xFF8A80);
 
-// Everything is 15% larger than the base sizes in docs/DESIGN.md (reads better
-// on a TV).
-constexpr float UI_SCALE = 1.15f;
-constexpr float S(float v) { return v * UI_SCALE; }
+// Everything is drawn at the base sizes in docs/DESIGN.md x the UI scale:
+// 15% larger by default (reads better on a TV), times the percentage chosen
+// in Settings. It changes live, so sizes are computed when used.
+constexpr float BASE_SCALE = 1.15f;
+constexpr int UI_SCALE_MIN = 80, UI_SCALE_MAX = 130, UI_SCALE_STEP = 5; // percent of the default
+inline float ui_scale_value = BASE_SCALE; // set by set_ui_scale()
+inline float S(float v) { return v * ui_scale_value; }
+int ui_scale_percent();
+// Saved in <data dir>/ui_scale.txt; load_ui_scale() reads it at start-up.
+void set_ui_scale(int percent);
+void load_ui_scale();
 
-// Typography (1920x1080 canvas): docs/DESIGN.md sizes x UI_SCALE
-constexpr int SIZE_PAGE_HEADER = (int)(48 * UI_SCALE);    // Bold
-constexpr int SIZE_SECTION_HEADER = (int)(32 * UI_SCALE); // Semi-Bold
-constexpr int SIZE_CARD_TITLE = (int)(24 * UI_SCALE);     // Medium
-constexpr int SIZE_BODY = (int)(20 * UI_SCALE);           // Regular
-constexpr int SIZE_SMALL = (int)(16 * UI_SCALE);          // Regular: kbd hints, details
-constexpr int SIZE_SUBTITLE = (int)(42 * UI_SCALE);       // Semi-Bold: video subtitles
+// Typography (1920x1080 canvas): docs/DESIGN.md sizes x the UI scale
+inline int size_page_header() { return (int)S(48); }    // Bold
+inline int size_section_header() { return (int)S(32); } // Semi-Bold
+inline int size_card_title() { return (int)S(24); }     // Medium
+inline int size_body() { return (int)S(20); }           // Regular
+inline int size_small() { return (int)S(16); }          // Regular: kbd hints, details
+// Semi-Bold: video subtitles, which keep their size at any UI scale.
+constexpr int SIZE_SUBTITLE = (int)(42 * BASE_SCALE);
 
 // Shape (daisyUI --radius-field / --radius-box / --radius-selector)
-constexpr float RADIUS_FIELD = S(12);    // cards, buttons, keys, list rows
-constexpr float RADIUS_BOX = S(24);      // large panels
-constexpr float RADIUS_SELECTOR = S(99); // pills: tabs, badges (clamped to half the height)
-constexpr float FOCUS_RING = S(4);
+inline float radius_field() { return S(12); }    // cards, buttons, keys, list rows
+inline float radius_box() { return S(24); }      // large panels
+inline float radius_selector() { return S(99); } // pills: tabs, badges (clamped to half the height)
+inline float focus_ring() { return S(4); }
 
 // Focus motion
 constexpr float FOCUS_SCALE = 1.1f;

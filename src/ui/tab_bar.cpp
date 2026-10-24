@@ -53,22 +53,22 @@ void TabBar::update(double dt, bool focused) {
 }
 
 void TabBar::draw(Renderer &r, Fonts &fonts) {
-	r.rect(0, CONTENT_BOTTOM, W, H - CONTENT_BOTTOM, theme::BASE_100);
-	toast_.draw(r, fonts.body, W / 2, BOX_Y - S(76));
+	r.rect(0, content_bottom(), W, H - content_bottom(), theme::BASE_100);
+	toast_.draw(r, fonts.body, W / 2, box_y() - S(76));
 
-	const float box_w = COUNT * TAB_W + 2 * BOX_PAD;
+	const float box_w = COUNT * tab_w() + 2 * box_pad();
 	const float box_x = (W - box_w) / 2;
-	r.rounded_rect(box_x, BOX_Y, box_w, BOX_H, theme::RADIUS_SELECTOR, theme::BASE_200);
+	r.rounded_rect(box_x, box_y(), box_w, box_h(), theme::radius_selector(), theme::BASE_200);
 	// The focused tab last, so its ring isn't covered by its neighbours.
 	for (int pass = 0; pass < 2; pass++) {
 		for (int i = 0; i < COUNT; i++) {
 			if ((pass == 0) == (focus_[i] > 0.5f)) continue;
-			ui::chip(r, fonts.card_title, LABELS[i], box_x + BOX_PAD + i * TAB_W, BOX_Y + BOX_PAD, TAB_W, TAB_H,
+			ui::chip(r, fonts.card_title, LABELS[i], box_x + box_pad() + i * tab_w(), box_y() + box_pad(), tab_w(), tab_h(),
 					i == active_, focus_[i], theme::BASE_200);
 		}
 	}
 	// Shoulder-button marks at the ends of the box.
-	const float hy = BOX_Y + BOX_H / 2 + fonts.small.size() * 0.36f;
+	const float hy = box_y() + box_h() / 2 + fonts.small.size() * 0.36f;
 	ui::kbd(r, fonts.small, "L1", box_x - S(20) - ui::kbd_width(fonts.small, "L1"), hy);
 	ui::kbd(r, fonts.small, "R1", box_x + box_w + S(20), hy);
 }

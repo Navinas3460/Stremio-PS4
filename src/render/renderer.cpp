@@ -269,6 +269,14 @@ void Renderer::image_cover(const Texture &t, float x, float y, float w, float h,
 	quad(IMAGE, t.id, Color{ 1, 1, 1, alpha }, x, y, w, h, u0 * shown, v0, u1 * shown, v1);
 }
 
+void Renderer::image_stretch(const Texture &t, float x, float y, float w, float h) {
+	if (!t.valid() || w <= 0 || h <= 0) {
+		return;
+	}
+	const float shown = (float)t.picture_width() / t.width; // padding columns stay off screen
+	quad(IMAGE, t.id, Color{ 1, 1, 1, 1 }, x, y, w, h, 0, 0, shown, 1);
+}
+
 // A 1x256 texture: rgb = the fade colour, alpha = 0..1 top to bottom.
 // Drawn with fpAlphaTexture (proven on PS4 by every image), not fpAlphaColor.
 const Texture &Renderer::ramp(const Color &c) {

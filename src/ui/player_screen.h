@@ -1,6 +1,7 @@
 // Full-screen video player. Controls: Cross play/pause, Left/Right seek 10 s
 // (presses add up), Up opens Audio & subtitles (L1 / R1 there switch the
-// subtitle language tab), Down shows the controls, Circle back. Watch
+// subtitle language tab), Down shows the controls, Triangle cycles the
+// aspect ratio (Fit, Fill, Stretch, 16:9, 4:3, 21:9), Circle back. Watch
 // progress is reported to Stremio (stremio-core's player rules) so it
 // resumes everywhere.
 //
@@ -78,6 +79,7 @@ private:
 	bool session_ = false;
 	VideoPlayer::State last_state_ = VideoPlayer::IDLE;
 	ui::Toast toast_;
+	int aspect_ = 0; // index into the aspect ratio modes (player_screen.cpp)
 
 	// Tracks and subtitles.
 	std::vector<SubtitleItem> addon_subs_;

@@ -25,7 +25,7 @@ Card Card::from_meta(const MetaItem &m) {
 namespace {
 // Artwork (or the title's initial) in a rounded w x h box.
 void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	r.rounded_rect(x, y, w, h, theme::RADIUS_FIELD, theme::BASE_200);
+	r.rounded_rect(x, y, w, h, theme::radius_field(), theme::BASE_200);
 	const Texture &art = images::first(c.images);
 	if (art.valid()) {
 		r.image_cover(art, x, y, w, h);
@@ -41,7 +41,7 @@ void draw_artwork(Renderer &r, Fonts &fonts, const Card &c, float x, float y, fl
 // The artwork is square-cornered: cap its corners in the colour behind it
 // (the focus ring while it shows).
 void round_artwork(Renderer &r, const Card &c, float x, float y, float w, float h) {
-	r.round_corners(x, y, w, h, theme::RADIUS_FIELD,
+	r.round_corners(x, y, w, h, theme::radius_field(),
 			c.focus > 0.02f ? mix(theme::BASE_100, theme::PRIMARY, c.focus) : theme::BASE_100);
 }
 
@@ -53,7 +53,7 @@ void draw_badge(Renderer &r, Fonts &fonts, const Card &c, float x, float y, floa
 } // namespace
 
 void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	const float R = theme::RADIUS_FIELD;
+	const float R = theme::radius_field();
 	ui::begin_focus(r, x, y, w, h, R, c.focus);
 	draw_artwork(r, fonts, c, x, y, w, h);
 	r.vertical_fade(x, y + h * 0.35f, w, h * 0.65f, theme::BASE_100, 0.0f, 0.95f);
@@ -76,7 +76,7 @@ void draw_card(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float
 }
 
 void draw_poster(Renderer &r, Fonts &fonts, const Card &c, float x, float y, float w, float h) {
-	const float R = theme::RADIUS_FIELD;
+	const float R = theme::radius_field();
 	ui::begin_focus(r, x, y, w, h, R, c.focus);
 	draw_artwork(r, fonts, c, x, y, w, h);
 	if (c.progress > 0) {

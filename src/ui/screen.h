@@ -3,6 +3,7 @@
 
 #include "../render/font.h"
 #include "../render/renderer.h"
+#include "theme.h"
 
 #include <cstdint>
 #include <memory>
@@ -14,6 +15,15 @@ struct Fonts {
 	Font body;        // regular
 	Font small;       // regular (controller hints, details)
 	Font subtitle;    // semibold, large (video subtitles)
+
+	// Sizes for the current UI scale (subtitles keep theirs).
+	void resize() {
+		page_header.set_size(theme::size_page_header());
+		section.set_size(theme::size_section_header());
+		card_title.set_size(theme::size_card_title());
+		body.set_size(theme::size_body());
+		small.set_size(theme::size_small());
+	}
 };
 
 class Screen {

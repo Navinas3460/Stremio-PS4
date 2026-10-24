@@ -55,6 +55,7 @@ add_executable(stremio_ps4
     src/ui/card.cpp
     src/ui/components.cpp
     src/ui/tab_bar.cpp
+    src/ui/theme.cpp
     src/ui/search_screen.cpp
     src/ui/library_screen.cpp
     src/ui/settings_screen.cpp

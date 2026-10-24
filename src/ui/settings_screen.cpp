@@ -11,7 +11,10 @@
 namespace {
 using theme::S;
 const float MARGIN_X = 120;
-const float ITEM_W = S(900), ITEM_H = S(84), ITEM_GAP = S(16), ITEMS_TOP = S(170);
+float item_w() { return S(900); }
+float item_h() { return S(84); }
+float item_gap() { return S(16); }
+float items_top() { return S(170); }
 const float SIGN_OUT_CONFIRM_SECONDS = 3.0f;
 } // namespace
 
@@ -23,22 +26,39 @@ SettingsScreen::SettingsScreen(Fonts &fonts, Navigator &nav) : fonts_(fonts), na
 void SettingsScreen::refresh_items() {
 	std::vector<Item> items;
 	const bool armed = sign_out_armed_ > 0;
-	items.push_back({ armed ? "Press \xC3\x97 again to sign out" : "Sign out", stremio().user_email(), armed });
+	items.push_back({ SIGN_OUT, armed ? "Press \xC3\x97 again to sign out" : "Sign out", stremio().user_email(), armed });
+	// "◀ 110% ▶", with an arrow only where there's further to go.
+	const int pct = theme::ui_scale_percent();
+	items.push_back({ UI_SCALE, "UI scale",
+		std::string(pct > theme::UI_SCALE_MIN ? "\xE2\x97\x80  " : "") + std::to_string(pct) + "%" +
+				(pct < theme::UI_SCALE_MAX ? "  \xE2\x96\xB6" : "") });
 #if defined(STREMIO_PS4)
-	items.push_back({ "Video player", avplayer_ ? "PS4 hardware (MP4 only)" : "FFmpeg (plays everything)" });
+	items.push_back({ VIDEO_PLAYER, "Video player", avplayer_ ? "PS4 hardware (MP4 only)" : "FFmpeg (plays everything)" });
 #endif
 	for (size_t i = 0; i < items.size() && i < items_.size(); i++) items[i].focus = items_[i].focus;
 	items_.swap(items);
 }
 
+// Left / Right on "UI scale": everything resizes at once.
+void SettingsScreen::step_scale(int steps) {
+	const int before = theme::ui_scale_percent();
+	theme::set_ui_scale(before + steps * theme::UI_SCALE_STEP);
+	if (theme::ui_scale_percent() == before) return;
+	fonts_.resize();
+	bar_.show_toast("UI scale " + std::to_string(theme::ui_scale_percent()) + "%");
+}
+
 void SettingsScreen::activate() {
-	if (index_ == 0) {
+	const Action action = items_[index_].action;
+	if (action == SIGN_OUT) {
 		if (sign_out_armed_ > 0) {
 			stremio().logout(); // the app switches to the sign-in screen
 			return;
 		}
 		sign_out_armed_ = SIGN_OUT_CONFIRM_SECONDS;
-	} else if (index_ == 1) {
+	} else if (action == UI_SCALE) {
+		step_scale((100 - theme::ui_scale_percent()) / theme::UI_SCALE_STEP); // Cross: back to 100%
+	} else if (action == VIDEO_PLAYER) {
 		avplayer_ = !avplayer_;
 		VideoPlayer::select_hardware(avplayer_);
 		bar_.show_toast(avplayer_ ? "Videos will use the PS4's hardware player (MP4 only)" : "Videos will use FFmpeg");
@@ -60,6 +80,10 @@ void SettingsScreen::update(double dt, uint32_t pressed) {
 			}
 		}
 		if (pressed & (platform::BUTTON_UP | platform::BUTTON_DOWN)) sign_out_armed_ = 0;
+		if (items_[index_].action == UI_SCALE) {
+			if (pressed & platform::BUTTON_LEFT) step_scale(-1);
+			if (pressed & platform::BUTTON_RIGHT) step_scale(1);
+		}
 		if (pressed & platform::BUTTON_ACCEPT) activate();
 	}
 	if (sign_out_armed_ > 0) sign_out_armed_ -= (float)dt;
@@ -72,19 +96,19 @@ void SettingsScreen::update(double dt, uint32_t pressed) {
 
 void SettingsScreen::draw(Renderer &r) {
 	r.text(fonts_.page_header, "Settings", MARGIN_X, S(96), theme::BASE_CONTENT);
-	const float R = theme::RADIUS_FIELD;
+	const float R = theme::radius_field();
 	for (int i = 0; i < (int)items_.size(); i++) {
 		const Item &item = items_[i];
-		const float y = ITEMS_TOP + i * (ITEM_H + ITEM_GAP);
+		const float y = items_top() + i * (item_h() + item_gap());
 		const Color tone = item.danger ? theme::ERROR : theme::PRIMARY;
-		ui::begin_focus(r, MARGIN_X, y, ITEM_W, ITEM_H, R, item.focus, 1.03f, tone);
-		r.rounded_rect(MARGIN_X, y, ITEM_W, ITEM_H, R, item.danger ? mix(theme::BASE_200, theme::ERROR, 0.2f) : theme::BASE_200);
-		r.text(fonts_.card_title, item.label, MARGIN_X + S(28), y + ITEM_H / 2 + S(9), item.danger ? theme::ERROR : theme::BASE_CONTENT);
+		ui::begin_focus(r, MARGIN_X, y, item_w(), item_h(), R, item.focus, 1.03f, tone);
+		r.rounded_rect(MARGIN_X, y, item_w(), item_h(), R, item.danger ? mix(theme::BASE_200, theme::ERROR, 0.2f) : theme::BASE_200);
+		r.text(fonts_.card_title, item.label, MARGIN_X + S(28), y + item_h() / 2 + S(9), item.danger ? theme::ERROR : theme::BASE_CONTENT);
 		const float vw = fonts_.body.measure(item.value);
-		r.text(fonts_.body, item.value, MARGIN_X + ITEM_W - S(28) - vw, y + ITEM_H / 2 + S(8), theme::BASE_CONTENT_MUTED);
-		ui::end_focus(r, MARGIN_X, y, ITEM_W, ITEM_H, R, item.focus);
+		r.text(fonts_.body, item.value, MARGIN_X + item_w() - S(28) - vw, y + item_h() / 2 + S(8), theme::BASE_CONTENT_MUTED);
+		ui::end_focus(r, MARGIN_X, y, item_w(), item_h(), R, item.focus);
 	}
-	const float info_y = ITEMS_TOP + items_.size() * (ITEM_H + ITEM_GAP) + S(40);
+	const float info_y = items_top() + items_.size() * (item_h() + item_gap()) + S(40);
 	r.text(fonts_.body, std::string("Stremio PS4 ") + APP_VERSION, MARGIN_X, info_y, theme::BASE_CONTENT_MUTED);
 	bar_.draw(r, fonts_);
 }
