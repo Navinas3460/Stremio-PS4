@@ -4,6 +4,7 @@
 #include "../platform/platform.h"
 #include "../video/video_player.h"
 #include "components.h"
+#include "i18n.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -26,14 +27,15 @@ SettingsScreen::SettingsScreen(Fonts &fonts, Navigator &nav) : fonts_(fonts), na
 void SettingsScreen::refresh_items() {
 	std::vector<Item> items;
 	const bool armed = sign_out_armed_ > 0;
-	items.push_back({ SIGN_OUT, armed ? "Press \xC3\x97 again to sign out" : "Sign out", stremio().user_email(), armed });
+	items.push_back({ INTERFACE_LANGUAGE, i18n::tr(i18n::Text::INTERFACE_LANGUAGE), i18n::language_name() });
+        items.push_back({ SIGN_OUT, armed ? i18n::tr(i18n::Text::SIGN_OUT_CONFIRM) : i18n::tr(i18n::Text::SIGN_OUT), stremio().user_email(), armed });
 	// "◀ 110% ▶", with an arrow only where there's further to go.
 	const int pct = theme::ui_scale_percent();
-	items.push_back({ UI_SCALE, "UI scale",
+	items.push_back({ UI_SCALE, i18n::tr(i18n::Text::UI_SCALE),
 		std::string(pct > theme::UI_SCALE_MIN ? "\xE2\x97\x80  " : "") + std::to_string(pct) + "%" +
 				(pct < theme::UI_SCALE_MAX ? "  \xE2\x96\xB6" : "") });
 #if defined(STREMIO_PS4)
-	items.push_back({ VIDEO_PLAYER, "Video player", avplayer_ ? "PS4 hardware (MP4 only)" : "FFmpeg (plays everything)" });
+	items.push_back({ VIDEO_PLAYER, i18n::tr(i18n::Text::VIDEO_PLAYER), avplayer_ ? i18n::tr(i18n::Text::PLAYER_HARDWARE) : i18n::tr(i18n::Text::PLAYER_FFMPEG) });
 #endif
 	for (size_t i = 0; i < items.size() && i < items_.size(); i++) items[i].focus = items_[i].focus;
 	items_.swap(items);
@@ -45,12 +47,17 @@ void SettingsScreen::step_scale(int steps) {
 	theme::set_ui_scale(before + steps * theme::UI_SCALE_STEP);
 	if (theme::ui_scale_percent() == before) return;
 	fonts_.resize();
-	bar_.show_toast("UI scale " + std::to_string(theme::ui_scale_percent()) + "%");
+	bar_.show_toast(std::string(i18n::tr(i18n::Text::UI_SCALE)) + " " + std::to_string(theme::ui_scale_percent()) + "%");
 }
 
 void SettingsScreen::activate() {
 	const Action action = items_[index_].action;
-	if (action == SIGN_OUT) {
+	if (action == INTERFACE_LANGUAGE) {
+		i18n::set_language(
+			i18n::language() == i18n::Language::ENGLISH
+				? i18n::Language::SPANISH
+				: i18n::Language::ENGLISH);
+	} else if (action == SIGN_OUT) {
 		if (sign_out_armed_ > 0) {
 			stremio().logout(); // the app switches to the sign-in screen
 			return;
@@ -61,7 +68,7 @@ void SettingsScreen::activate() {
 	} else if (action == VIDEO_PLAYER) {
 		avplayer_ = !avplayer_;
 		VideoPlayer::select_hardware(avplayer_);
-		bar_.show_toast(avplayer_ ? "Videos will use the PS4's hardware player (MP4 only)" : "Videos will use FFmpeg");
+		bar_.show_toast(avplayer_ ? i18n::tr(i18n::Text::PLAYER_HARDWARE_TOAST) : i18n::tr(i18n::Text::PLAYER_FFMPEG_TOAST));
 	}
 }
 
@@ -95,7 +102,7 @@ void SettingsScreen::update(double dt, uint32_t pressed) {
 }
 
 void SettingsScreen::draw(Renderer &r) {
-	r.text(fonts_.page_header, "Settings", MARGIN_X, S(96), theme::BASE_CONTENT);
+		r.text(fonts_.page_header, i18n::tr(i18n::Text::SETTINGS), MARGIN_X, S(96), theme::BASE_CONTENT);
 	const float R = theme::radius_field();
 	for (int i = 0; i < (int)items_.size(); i++) {
 		const Item &item = items_[i];
