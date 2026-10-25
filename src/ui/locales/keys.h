@@ -1,0 +1,109 @@
+// Shared translation keys. Keep language files aligned with this list.
+#pragma once
+
+namespace i18n {
+
+enum class Text {
+    // Navigation and settings.
+    HOME,
+    DISCOVER,
+    SEARCH,
+    LIBRARY,
+    SETTINGS,
+    SIGN_OUT,
+    SIGN_OUT_CONFIRM,
+    UI_SCALE,
+    VIDEO_PLAYER,
+    PLAYER_HARDWARE,
+    PLAYER_FFMPEG,
+    PLAYER_HARDWARE_TOAST,
+    PLAYER_FFMPEG_TOAST,
+    INTERFACE_LANGUAGE,
+    CONTINUE_WATCHING,
+    FILTERS,
+
+    // Loading, errors and empty states.
+    LOADING,
+    LOADING_MORE,
+    LOADING_LIBRARY,
+    LOADING_ADDONS,
+    LIBRARY_LOAD_ERROR,
+    ADDONS_LOAD_ERROR,
+    CATALOG_LOAD_ERROR,
+    CATALOG_SEARCH_ERROR,
+    NO_BROWSABLE_CATALOGS,
+    EMPTY_CATALOG,
+    EMPTY_CONTINUE_WATCHING,
+    EMPTY_LIBRARY,
+    ADDONS,
+
+    // Progress and notifications.
+    MINUTES_LEFT_SUFFIX,
+    ONE_NEW_EPISODE,
+    NEW_EPISODES_SUFFIX,
+    NEW_SINGULAR_SUFFIX,
+    NEW_PLURAL_SUFFIX,
+
+    // Search and keyboard.
+    SEARCHING,
+    SEARCH_HINT,
+    NO_RESULTS_PREFIX,
+    TYPE_A_TITLE,
+    SPACE,
+    DELETE_KEY,
+    CLEAR,
+    RESULTS,
+
+    // Library sorting.
+    SORT_RECENT,
+    SORT_ALPHABETICAL,
+    SORT_MOST_WATCHED,
+
+    // Display labels for types, catalogs and filters.
+    TYPE_MOVIES,
+    TYPE_SERIES,
+    TYPE_CHANNELS,
+    POPULAR,
+    FEATURED,
+    FEATURED_MOVIES,
+    FEATURED_SERIES,
+    CATALOG_NEW,
+    TRENDING,
+    TOP_AIRING,
+    MOST_POPULAR,
+    HIGHEST_RATED,
+    KITSU_TRENDING,
+    KITSU_TOP_AIRING,
+    KITSU_MOST_POPULAR,
+    KITSU_HIGHEST_RATED,
+    TOP_SEEDED,
+    FILTER_TYPE,
+    FILTER_CATALOG,
+    FILTER_YEAR,
+    FILTER_GENRE,
+    FILTER_ALL,
+
+    // Genres.
+    GENRE_ACTION,
+    GENRE_ADVENTURE,
+    GENRE_ANIMATION,
+    GENRE_COMEDY,
+    GENRE_CRIME,
+    GENRE_DOCUMENTARY,
+    GENRE_DRAMA,
+    GENRE_FAMILY,
+    GENRE_FANTASY,
+    GENRE_HISTORY,
+    GENRE_HORROR,
+    GENRE_MUSIC,
+    GENRE_MYSTERY,
+    GENRE_ROMANCE,
+    GENRE_SCIENCE_FICTION,
+    GENRE_THRILLER,
+    GENRE_WAR,
+    GENRE_WESTERN,
+
+    COUNT
+};
+
+} // namespace i18n

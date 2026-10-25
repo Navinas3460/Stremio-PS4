@@ -56,7 +56,7 @@ STAGED      := eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_sys/about/right
 
 all: $(OUT)/$(CONTENT_ID).pkg
 
-$(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h) Makefile.ps4 VERSION
+$(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h src/ui/locales/*.h) Makefile.ps4 VERSION
 	@mkdir -p $(dir $@)
 	clang++ $(CXXFLAGS) -c -o $@ $<
 

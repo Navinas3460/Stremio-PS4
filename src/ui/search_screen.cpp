@@ -124,8 +124,8 @@ void SearchScreen::rebuild_rows() {
 	for (const BoardRow &b : s.search_results()) {
 		CardRow row;
                 if (CardRow::from_board(b,
-                        i18n::tr("Searching\xE2\x80\xA6", "Buscando\xE2\x80\xA6"),
-                        i18n::tr("Couldn't search this catalog: ", "No se pudo buscar en este catálogo: "),
+                        i18n::tr(i18n::Text::SEARCHING),
+                        i18n::tr(i18n::Text::CATALOG_SEARCH_ERROR),
                         row)) rows.push_back(row);
 	}
 	carry_over(rows, rows_); // keep the position in rows that are still there
@@ -189,9 +189,9 @@ void SearchScreen::draw(Renderer &r) {
 	if (rows_.empty()) {
 		const bool searching = search_delay_ > 0 || query_ != stremio().search_query();
                 const std::string hint = query_.empty()
-                        ? i18n::tr("Search for movies and series with the keyboard", "Busca películas y series con el teclado")
+                        ? i18n::tr(i18n::Text::SEARCH_HINT)
                         : searching ? std::string()
-                        : std::string(i18n::tr("No results for \"", "No hay resultados para \"")) + query_ + "\"";
+                        : std::string(i18n::tr(i18n::Text::NO_RESULTS_PREFIX)) + query_ + "\"";
 		r.text(fonts_.body, fonts_.body.ellipsize(hint, view_w()), results_x(), content_top() + S(40), theme::BASE_CONTENT_MUTED);
 	}
 	float y = content_top() - content_scroll_;
@@ -213,7 +213,7 @@ void SearchScreen::draw(Renderer &r) {
 	r.pop();
 	const float qx = MARGIN_X + S(20), qy = content_top() + query_h() / 2 + S(10);
 	if (query_.empty()) {
-                r.text(fonts_.card_title, i18n::tr("Type a title", "Escribe un título"), qx, qy, theme::BASE_CONTENT_MUTED);
+                r.text(fonts_.card_title, i18n::tr(i18n::Text::TYPE_A_TITLE), qx, qy, theme::BASE_CONTENT_MUTED);
 	} else {
 		const std::string shown = query_.size() > 26 ? "\xE2\x80\xA6" + query_.substr(query_.size() - 25) : query_;
 		r.text(fonts_.card_title, shown, qx, qy, theme::BASE_CONTENT);

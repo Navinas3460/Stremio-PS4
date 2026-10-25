@@ -70,7 +70,7 @@ void DiscoverScreen::rebuild() {
 			if (item->is_in_continue_watching()) c.progress = item->progress();
 			const int n = s.notification_count(item->id);
                         if (n > 0) c.badge = std::to_string(n)
-                                + i18n::tr(" new", n == 1 ? " nuevo" : " nuevos");
+                                + i18n::tr(n == 1 ? i18n::Text::NEW_SINGULAR_SUFFIX : i18n::Text::NEW_PLURAL_SUFFIX);
 		}
 		auto f = focus.find(c.meta_id);
 		if (f != focus.end()) c.focus = f->second;
@@ -89,21 +89,19 @@ void DiscoverScreen::rebuild() {
 	status_is_error_ = false;
 	if (cards_.empty()) {
 		if (!s.addons_loaded()) {
-                        status_ = i18n::tr("Loading your add-ons\xE2\x80\xA6", "Cargando tus complementos\xE2\x80\xA6");
+                        status_ = i18n::tr(i18n::Text::LOADING_ADDONS);
 		} else if (d.types.empty()) {
                         status_ = s.addons_error().empty()
-                                ? std::string(i18n::tr("None of your add-ons have catalogs to browse.",
-                                        "Ninguno de tus complementos tiene catálogos para explorar."))
-                                : std::string(i18n::tr("Couldn't load your add-ons: ",
-                                        "No se pudieron cargar tus complementos: ")) + s.addons_error();
+                                ? std::string(i18n::tr(i18n::Text::NO_BROWSABLE_CATALOGS))
+                                : std::string(i18n::tr(i18n::Text::ADDONS_LOAD_ERROR)) + s.addons_error();
 			status_is_error_ = !s.addons_error().empty();
 		} else if (d.loading) {
-                        status_ = i18n::tr("Loading\xE2\x80\xA6", "Cargando\xE2\x80\xA6");
+                        status_ = i18n::tr(i18n::Text::LOADING);
 		} else if (!d.error.empty()) {
-                        status_ = std::string(i18n::tr("Couldn't load this catalog: ", "No se pudo cargar este catálogo: ")) + d.error;
+                        status_ = std::string(i18n::tr(i18n::Text::CATALOG_LOAD_ERROR)) + d.error;
 			status_is_error_ = true;
 		} else {
-                        status_ = i18n::tr("Nothing in this catalog.", "Este catálogo está vacío.");
+                        status_ = i18n::tr(i18n::Text::EMPTY_CATALOG);
 		}
 	}
 
@@ -291,7 +289,7 @@ void DiscoverScreen::draw(Renderer &r) {
 	if (!cards_.empty() && d.loading) { // the next page
 		const float y = grid_top() + ((cards_.size() + columns() - 1) / columns()) * pitch() - scroll_ + S(30);
                 if (y < tabs::content_bottom()) r.text(fonts_.body,
-                        i18n::tr("Loading more\xE2\x80\xA6", "Cargando más\xE2\x80\xA6"), MARGIN_X, y, theme::BASE_CONTENT_MUTED);
+                        i18n::tr(i18n::Text::LOADING_MORE), MARGIN_X, y, theme::BASE_CONTENT_MUTED);
 	}
 
 	// Header band (covers cards scrolled under it): the title, what's shown

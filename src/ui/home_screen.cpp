@@ -37,9 +37,9 @@ void HomeScreen::rebuild_rows() {
 	CardRow cw;
         cw.title = i18n::tr(i18n::Text::CONTINUE_WATCHING);
 	if (!s.library_loaded()) {
-                cw.status = i18n::tr("Loading your library\xE2\x80\xA6", "Cargando tu biblioteca\xE2\x80\xA6");
+                cw.status = i18n::tr(i18n::Text::LOADING_LIBRARY);
 	} else if (!s.library_error().empty()) {
-                cw.status = std::string(i18n::tr("Couldn't load your library: ", "No se pudo cargar tu biblioteca: "))
+                cw.status = std::string(i18n::tr(i18n::Text::LIBRARY_LOAD_ERROR))
                         + s.library_error();
 		cw.status_is_error = true;
 	} else {
@@ -50,29 +50,27 @@ void HomeScreen::rebuild_rows() {
 			const int left = item->minutes_left();
 			if (left > 0 && item->progress() > 0) {
                                 c.subtitle += (c.subtitle.empty() ? "" : "  \xC2\xB7  ")
-                                        + std::to_string(left) + i18n::tr(" min left", " min restantes");
+                                        + std::to_string(left) + i18n::tr(i18n::Text::MINUTES_LEFT_SUFFIX);
 			}
 			c.progress = item->progress();
 			const int n = s.notification_count(item->id);
                         if (n > 0) c.badge = n == 1
-                                ? i18n::tr("1 new episode", "1 episodio nuevo")
-                                : std::to_string(n) + i18n::tr(" new episodes", " episodios nuevos");
+                                ? i18n::tr(i18n::Text::ONE_NEW_EPISODE)
+                                : std::to_string(n) + i18n::tr(i18n::Text::NEW_EPISODES_SUFFIX);
 			c.images = item->landscape_images();
 			c.meta_id = item->id;
 			c.type = item->type;
 			c.poster = item->poster;
 			cw.cards.push_back(c);
 		}
-                if (cw.cards.empty()) cw.status = i18n::tr(
-                        "Nothing to continue yet. Start something in Stremio and it will show up here.",
-                        "Todavía no hay nada para continuar. Empieza a ver algo en Stremio y aparecerá aquí.");
+                if (cw.cards.empty()) cw.status = i18n::tr(i18n::Text::EMPTY_CONTINUE_WATCHING);
 	}
 	rows.push_back(cw);
 
 	if (!s.addons_error().empty()) {
 		CardRow err;
-                err.title = i18n::tr("Add-ons", "Complementos");
-                err.status = std::string(i18n::tr("Couldn't load your add-ons: ", "No se pudieron cargar tus complementos: "))
+                err.title = i18n::tr(i18n::Text::ADDONS);
+                err.status = std::string(i18n::tr(i18n::Text::ADDONS_LOAD_ERROR))
                         + s.addons_error();
 		err.status_is_error = true;
 		rows.push_back(err);
@@ -80,8 +78,8 @@ void HomeScreen::rebuild_rows() {
 	for (const BoardRow &b : s.board()) {
 		CardRow row;
                 if (CardRow::from_board(b,
-                        i18n::tr("Loading\xE2\x80\xA6", "Cargando\xE2\x80\xA6"),
-                        i18n::tr("Couldn't load this catalog: ", "No se pudo cargar este catálogo: "),
+                        i18n::tr(i18n::Text::LOADING),
+                        i18n::tr(i18n::Text::CATALOG_LOAD_ERROR),
                         row)) rows.push_back(row);
 	}
 	carry_over(rows, rows_);

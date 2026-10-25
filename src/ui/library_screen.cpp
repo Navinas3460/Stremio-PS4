@@ -25,8 +25,6 @@ float chips_cy() { return S(78); } // centred on the title
 float grid_top() { return S(150); }
 float view_h() { return tabs::content_bottom() - grid_top(); }
 
-const char *SORT_LABELS[] = { "Recent", "A\xE2\x80\x93Z", "Most watched" }; // Stremio::LibrarySort order
-
 // The filters last chosen, kept while the app runs (switching tabs recreates
 // the screen).
 std::string g_type;
@@ -54,9 +52,9 @@ void LibraryScreen::rebuild(bool keep_selection) {
 	for (int i = 0; i < 3; i++) {
 		Chip c;
                 c.label = i == 0
-                        ? i18n::tr("Recent", "Recientes")
-                        : i == 2 ? i18n::tr("Most watched", "Más vistos")
-                        : SORT_LABELS[i];
+                        ? i18n::tr(i18n::Text::SORT_RECENT)
+                        : i == 2 ? i18n::tr(i18n::Text::SORT_MOST_WATCHED)
+                        : i18n::tr(i18n::Text::SORT_ALPHABETICAL);
 		c.sort = i;
 		chips.push_back(c);
 	}
@@ -92,9 +90,9 @@ void LibraryScreen::rebuild(bool keep_selection) {
 	status_.clear();
 	status_is_error_ = false;
 	if (!s.library_loaded()) {
-                status_ = i18n::tr("Loading your library\xE2\x80\xA6", "Cargando tu biblioteca\xE2\x80\xA6");
+                status_ = i18n::tr(i18n::Text::LOADING_LIBRARY);
 	} else if (!s.library_error().empty()) {
-                status_ = std::string(i18n::tr("Couldn't load your library: ", "No se pudo cargar tu biblioteca: "))
+                status_ = std::string(i18n::tr(i18n::Text::LIBRARY_LOAD_ERROR))
                         + s.library_error();
 		status_is_error_ = true;
 	} else {
@@ -105,7 +103,7 @@ void LibraryScreen::rebuild(bool keep_selection) {
 			if (item->is_in_continue_watching()) c.progress = item->progress();
 			const int n = s.notification_count(item->id);
                         if (n > 0) c.badge = std::to_string(n)
-                                + i18n::tr(" new", n == 1 ? " nuevo" : " nuevos");
+                                + i18n::tr(n == 1 ? i18n::Text::NEW_SINGULAR_SUFFIX : i18n::Text::NEW_PLURAL_SUFFIX);
 			c.images = item->poster_images();
 			c.meta_id = item->id;
 			c.type = item->type;
@@ -114,9 +112,7 @@ void LibraryScreen::rebuild(bool keep_selection) {
 			if (f != focus.end()) c.focus = f->second;
 			cards_.push_back(c);
 		}
-                if (cards_.empty()) status_ = i18n::tr(
-                        "Your library is empty. Open a title and press \xE2\x96\xB3 to add it.",
-                        "Tu biblioteca está vacía. Abre un título y pulsa \xE2\x96\xB3 para añadirlo.");
+                if (cards_.empty()) status_ = i18n::tr(i18n::Text::EMPTY_LIBRARY);
 	}
 	selected_ = 0;
 	for (size_t i = 0; i < cards_.size(); i++) {

@@ -53,10 +53,7 @@ void SettingsScreen::step_scale(int steps) {
 void SettingsScreen::activate() {
 	const Action action = items_[index_].action;
 	if (action == INTERFACE_LANGUAGE) {
-		i18n::set_language(
-			i18n::language() == i18n::Language::ENGLISH
-				? i18n::Language::SPANISH
-				: i18n::Language::ENGLISH);
+                i18n::next_language();
 	} else if (action == SIGN_OUT) {
 		if (sign_out_armed_ > 0) {
 			stremio().logout(); // the app switches to the sign-in screen
