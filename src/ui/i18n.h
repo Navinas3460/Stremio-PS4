@@ -3,6 +3,7 @@
 
 #include "../platform/platform.h"
 
+#include <cctype>
 #include <string>
 
 namespace i18n {
@@ -23,7 +24,9 @@ enum class Text {
 	PLAYER_FFMPEG,
 	PLAYER_HARDWARE_TOAST,
 	PLAYER_FFMPEG_TOAST,
-	INTERFACE_LANGUAGE
+        INTERFACE_LANGUAGE,
+        CONTINUE_WATCHING,
+        FILTERS
 };
 
 inline Language current_language = Language::ENGLISH;
@@ -50,6 +53,10 @@ inline void set_language(Language value) {
 
 inline const char *language_name() {
 	return current_language == Language::SPANISH ? "Español" : "English";
+}
+
+inline const char *tr(const char *english, const char *spanish) {
+        return current_language == Language::SPANISH ? spanish : english;
 }
 
 inline const char *tr(Text text) {
@@ -85,8 +92,94 @@ inline const char *tr(Text text) {
 			return es ? "Se usará FFmpeg" : "Videos will use FFmpeg";
 		case Text::INTERFACE_LANGUAGE:
 			return es ? "Idioma de la interfaz" : "Interface language";
+                case Text::CONTINUE_WATCHING:
+                        return es ? "Continuar viendo" : "Continue watching";
+                case Text::FILTERS:
+                        return es ? "Filtros" : "Filters";
 	}
 	return "";
+}
+
+// Translate display labels only; keep unknown labels unchanged.
+inline std::string label(const std::string &value) {
+        if (current_language != Language::SPANISH) return value;
+        static const struct { const char *en; const char *es; } labels[] = {
+                { "Space", "Espacio" },
+                { "Delete", "Borrar" },
+                { "Clear", "Limpiar" },
+                { "Results", "Resultados" },
+                { "Movie", "Películas" },
+                { "Movies", "Películas" },
+                { "Series", "Series" },
+                { "Channel", "Canales" },
+                { "Channels", "Canales" },
+                { "Popular", "Popular" },
+                { "Featured", "Destacados" },
+                { "Featured Movies", "Películas destacadas" },
+                { "Featured Series", "Series destacadas" },
+                { "New", "Novedades" },
+                { "Trending", "Tendencias" },
+                { "Top Airing", "Lo mejor en emisión" },
+                { "Most Popular", "Lo más popular" },
+                { "Highest Rated", "Lo mejor valorado" },
+                { "Kitsu Trending", "Tendencias en Kitsu" },
+                { "Kitsu Top Airing", "Lo mejor en emisión en Kitsu" },
+                { "Kitsu Most Popular", "Lo más popular en Kitsu" },
+                { "Kitsu Highest Rated", "Lo mejor valorado en Kitsu" },
+                { "Top Seeded", "Con más fuentes" },
+                { "Action", "Acción" },
+                { "Adventure", "Aventura" },
+                { "Animation", "Animación" },
+                { "Comedy", "Comedia" },
+                { "Crime", "Crimen" },
+                { "Documentary", "Documental" },
+                { "Drama", "Drama" },
+                { "Family", "Familiar" },
+                { "Fantasy", "Fantasía" },
+                { "History", "Historia" },
+                { "Horror", "Terror" },
+                { "Music", "Música" },
+                { "Mystery", "Misterio" },
+                { "Romance", "Romance" },
+                { "Science Fiction", "Ciencia ficción" },
+                { "Sci-Fi", "Ciencia ficción" },
+                { "Thriller", "Suspenso" },
+                { "War", "Bélico" },
+                { "Western", "Oeste" },
+                { "Type", "Tipo" },
+                { "Catalog", "Catálogo" },
+                { "Year", "Año" },
+                { "Genre", "Género" },
+                { "All", "Todos" }
+        };
+        auto lowercase = [](std::string text) {
+                for (char &c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                return text;
+        };
+        const std::string key = lowercase(value);
+        for (const auto &entry : labels) {
+                if (key == lowercase(entry.en)) return entry.es;
+        }
+        return value;
+}
+
+inline std::string catalog_label(const std::string &value) {
+        if (current_language != Language::SPANISH) return value;
+        const std::string translated = label(value);
+        if (translated != value) return translated;
+        const size_t suffix = value.rfind(" (");
+        if (suffix != std::string::npos && !value.empty() && value.back() == ')') {
+                return label(value.substr(0, suffix)) + value.substr(suffix);
+        }
+        return value;
+}
+
+inline std::string row_title(const std::string &value) {
+        if (current_language != Language::SPANISH) return value;
+        const size_t separator = value.rfind(" - ");
+        if (separator == std::string::npos) return catalog_label(value);
+        return catalog_label(value.substr(0, separator)) + " - "
+                + label(value.substr(separator + 3));
 }
 
 } // namespace i18n

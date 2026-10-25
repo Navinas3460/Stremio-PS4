@@ -3,6 +3,7 @@
 #include "../core/stremio.h"
 #include "../platform/platform.h"
 #include "components.h"
+#include "i18n.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -68,7 +69,8 @@ void DiscoverScreen::rebuild() {
 		if (const LibraryItem *item = s.library_item(m.id)) {
 			if (item->is_in_continue_watching()) c.progress = item->progress();
 			const int n = s.notification_count(item->id);
-			if (n > 0) c.badge = std::to_string(n) + " new";
+                        if (n > 0) c.badge = std::to_string(n)
+                                + i18n::tr(" new", n == 1 ? " nuevo" : " nuevos");
 		}
 		auto f = focus.find(c.meta_id);
 		if (f != focus.end()) c.focus = f->second;
@@ -87,18 +89,21 @@ void DiscoverScreen::rebuild() {
 	status_is_error_ = false;
 	if (cards_.empty()) {
 		if (!s.addons_loaded()) {
-			status_ = "Loading your add-ons\xE2\x80\xA6";
+                        status_ = i18n::tr("Loading your add-ons\xE2\x80\xA6", "Cargando tus complementos\xE2\x80\xA6");
 		} else if (d.types.empty()) {
-			status_ = s.addons_error().empty() ? "None of your add-ons have catalogs to browse."
-											   : "Couldn't load your add-ons: " + s.addons_error();
+                        status_ = s.addons_error().empty()
+                                ? std::string(i18n::tr("None of your add-ons have catalogs to browse.",
+                                        "Ninguno de tus complementos tiene catálogos para explorar."))
+                                : std::string(i18n::tr("Couldn't load your add-ons: ",
+                                        "No se pudieron cargar tus complementos: ")) + s.addons_error();
 			status_is_error_ = !s.addons_error().empty();
 		} else if (d.loading) {
-			status_ = "Loading\xE2\x80\xA6";
+                        status_ = i18n::tr("Loading\xE2\x80\xA6", "Cargando\xE2\x80\xA6");
 		} else if (!d.error.empty()) {
-			status_ = "Couldn't load this catalog: " + d.error;
+                        status_ = std::string(i18n::tr("Couldn't load this catalog: ", "No se pudo cargar este catálogo: ")) + d.error;
 			status_is_error_ = true;
 		} else {
-			status_ = "Nothing in this catalog.";
+                        status_ = i18n::tr("Nothing in this catalog.", "Este catálogo está vacío.");
 		}
 	}
 
@@ -117,9 +122,9 @@ std::vector<std::string> DiscoverScreen::column_items(int column) const {
 	if (column == TYPE) {
 		for (const std::string &t : d.types) items.push_back(type_label(t));
 	} else if (column == CATALOG) {
-		items = d.catalogs;
+                for (const std::string &name : d.catalogs) items.push_back(i18n::catalog_label(name));
 	} else {
-		for (const std::string &f : d.filter_options) items.push_back(f.empty() ? "All" : f);
+                for (const std::string &f : d.filter_options) items.push_back(i18n::label(f.empty() ? "All" : f));
 	}
 	return items;
 }
@@ -230,7 +235,11 @@ void DiscoverScreen::update(double dt, uint32_t pressed) {
 
 void DiscoverScreen::draw_menu(Renderer &r) {
 	const Discover &d = stremio().discover();
-	const char *titles[COLUMNS] = { "Type", "Catalog", all_years(d.filter_options) ? "Year" : "Genre" };
+        const std::string titles[COLUMNS] = {
+                i18n::label("Type"),
+                i18n::label("Catalog"),
+                i18n::label(all_years(d.filter_options) ? "Year" : "Genre")
+        };
 	const bool has_filter = !column_items(FILTER).empty();
 	float width = 2 * menu_pad() + column_w(TYPE) + menu_gap() + column_w(CATALOG);
 	if (has_filter) width += menu_gap() + column_w(FILTER);
@@ -281,18 +290,19 @@ void DiscoverScreen::draw(Renderer &r) {
 	}
 	if (!cards_.empty() && d.loading) { // the next page
 		const float y = grid_top() + ((cards_.size() + columns() - 1) / columns()) * pitch() - scroll_ + S(30);
-		if (y < tabs::content_bottom()) r.text(fonts_.body, "Loading more\xE2\x80\xA6", MARGIN_X, y, theme::BASE_CONTENT_MUTED);
+                if (y < tabs::content_bottom()) r.text(fonts_.body,
+                        i18n::tr("Loading more\xE2\x80\xA6", "Cargando más\xE2\x80\xA6"), MARGIN_X, y, theme::BASE_CONTENT_MUTED);
 	}
 
 	// Header band (covers cards scrolled under it): the title, what's shown
 	// and the filters' button.
 	r.rect(0, 0, W, grid_top() - S(24), theme::BASE_100);
-	const float title_w = r.text(fonts_.page_header, "Discover", MARGIN_X, title_baseline(), theme::BASE_CONTENT);
+        const float title_w = r.text(fonts_.page_header, i18n::tr(i18n::Text::DISCOVER), MARGIN_X, title_baseline(), theme::BASE_CONTENT);
 	std::string shown;
 	if (!d.type.empty()) shown = type_label(d.type);
-	if (d.catalog < (int)d.catalogs.size()) shown += " \xC2\xB7 " + d.catalogs[d.catalog];
-	if (!d.filter.empty()) shown += " \xC2\xB7 " + d.filter;
-	const std::vector<ui::Hint> hints = { { "\xE2\x96\xA1", "Filters" } };
+        if (d.catalog < (int)d.catalogs.size()) shown += " \xC2\xB7 " + i18n::catalog_label(d.catalogs[d.catalog]);
+        if (!d.filter.empty()) shown += " \xC2\xB7 " + i18n::label(d.filter);
+        const std::vector<ui::Hint> hints = { { "\xE2\x96\xA1", i18n::tr(i18n::Text::FILTERS) } };
 	const float hints_w = ui::hints_width(fonts_.small, hints);
 	const float shown_x = MARGIN_X + title_w + S(32);
 	r.text(fonts_.card_title, fonts_.card_title.ellipsize(shown, W - MARGIN_X - hints_w - S(32) - shown_x), shown_x,
