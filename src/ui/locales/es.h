@@ -99,6 +99,23 @@ inline const char *es(Text key) {
         case Text::GENRE_THRILLER: return "Suspenso";
         case Text::GENRE_WAR: return "Bélico";
         case Text::GENRE_WESTERN: return "Oeste";
+        case Text::EPISODES: return "Episodios";
+        case Text::STREAMS: return "Fuentes";
+        case Text::EPISODE: return "Episodio";
+        case Text::PLAY: return "Reproducir";
+        case Text::BACK: return "Volver";
+        case Text::SHOW_STREAMS: return "Ver fuentes";
+        case Text::ADD_TO_LIBRARY: return "Añadir a la biblioteca";
+        case Text::REMOVE_FROM_LIBRARY: return "Quitar de la biblioteca";
+        case Text::IN_LIBRARY: return "En la biblioteca";
+        case Text::ADDED_TO_LIBRARY: return "Añadido a tu biblioteca";
+        case Text::REMOVED_FROM_LIBRARY: return "Eliminado de tu biblioteca";
+        case Text::LOADING_EPISODES: return "Cargando episodios\xE2\x80\xA6";
+        case Text::FINDING_STREAMS: return "Buscando fuentes\xE2\x80\xA6";
+        case Text::NO_STREAMS_FOUND: return "No se encontraron fuentes. Instala un complemento de reproducción en Stremio para ver este contenido.";
+        case Text::DETAILS_LOAD_ERROR: return "No se pudieron cargar los detalles: ";
+        case Text::SEEDER_SUFFIX: return " fuente";
+        case Text::SEEDERS_SUFFIX: return " fuentes";
         default: return nullptr;
     }
 }

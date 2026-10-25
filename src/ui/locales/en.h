@@ -99,6 +99,23 @@ inline const char *en(Text key) {
         case Text::GENRE_THRILLER: return "Thriller";
         case Text::GENRE_WAR: return "War";
         case Text::GENRE_WESTERN: return "Western";
+        case Text::EPISODES: return "Episodes";
+        case Text::STREAMS: return "Streams";
+        case Text::EPISODE: return "Episode";
+        case Text::PLAY: return "Play";
+        case Text::BACK: return "Back";
+        case Text::SHOW_STREAMS: return "Show streams";
+        case Text::ADD_TO_LIBRARY: return "Add to library";
+        case Text::REMOVE_FROM_LIBRARY: return "Remove from library";
+        case Text::IN_LIBRARY: return "In library";
+        case Text::ADDED_TO_LIBRARY: return "Added to your library";
+        case Text::REMOVED_FROM_LIBRARY: return "Removed from your library";
+        case Text::LOADING_EPISODES: return "Loading episodes\xE2\x80\xA6";
+        case Text::FINDING_STREAMS: return "Finding streams\xE2\x80\xA6";
+        case Text::NO_STREAMS_FOUND: return "No streams found. Install a streaming add-on in Stremio to watch this.";
+        case Text::DETAILS_LOAD_ERROR: return "Couldn't load details: ";
+        case Text::SEEDER_SUFFIX: return " seeder";
+        case Text::SEEDERS_SUFFIX: return " seeders";
         case Text::COUNT: return nullptr;
     }
     return nullptr;
