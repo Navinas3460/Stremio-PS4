@@ -6,6 +6,7 @@
 #include "../net/http.h"
 #include "../net/urls.h"
 #include "../platform/platform.h"
+#include "i18n.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -57,6 +58,15 @@ const AspectMode ASPECTS[] = { { "Fit", 0 }, { "Fill", 0 }, { "Stretch", 0 }, { 
 	{ "21:9", 21.0f / 9 } };
 const int FILL = 1, STRETCH = 2, ASPECT_COUNT = sizeof(ASPECTS) / sizeof(ASPECTS[0]);
 
+const char *aspect_label(int mode) {
+        switch (mode) {
+                case 0: return i18n::tr(i18n::Text::PLAYER_FIT);
+                case 1: return i18n::tr(i18n::Text::PLAYER_FILL);
+                case 2: return i18n::tr(i18n::Text::PLAYER_STRETCH);
+                default: return ASPECTS[mode].name;
+        }
+}
+
 // Where the picture goes on screen in aspect mode `mode`.
 void picture_rect(int mode, const Texture &frame, float &x, float &y, float &w, float &h) {
 	if (mode == STRETCH) {
@@ -106,6 +116,12 @@ bool same_language(const std::string &a, const std::string &b) {
 
 // The language tab a subtitle is listed under: unrecognised and untagged
 // ones go under "Other".
+std::string track_display_label(const std::string &value) {
+        const size_t dot = value.find(" \xC2\xB7 ");
+        if (dot == std::string::npos) return i18n::label(value);
+        return i18n::label(value.substr(0, dot)) + value.substr(dot);
+}
+
 const char *OTHER_TAB = "Other";
 std::string tab_name(const std::string &lang) {
 	const char *name = find_language(lang);
@@ -173,15 +189,15 @@ void PlayerScreen::queue_seek(double step) {
 void PlayerScreen::rebuild_subtitle_options() {
 	std::vector<SubtitleOption> options;
 	SubtitleOption off;
-	off.label = "Off";
+	off.label = i18n::tr(i18n::Text::PLAYER_SUBTITLES_OFF);
 	options.push_back(off);
 	for (const VideoPlayer::Track &t : player_->subtitle_tracks()) {
 		SubtitleOption o;
 		o.kind = SubtitleOption::EMBEDDED;
 		o.id = t.id;
 		o.lang = t.lang;
-		o.label = t.label;
-		o.detail = "In the video";
+		o.label = track_display_label(t.label);
+		o.detail = i18n::tr(i18n::Text::PLAYER_EMBEDDED);
 		options.push_back(o);
 	}
 	// Add-on subtitles grouped by language: the preferred language first, then
@@ -202,7 +218,7 @@ void PlayerScreen::rebuild_subtitle_options() {
 		o.id = i;
 		o.lang = s.lang;
 		const std::string name = s.lang.empty() ? "Unknown" : language_name(s.lang);
-		o.label = name + " " + std::to_string(++count[name]);
+		o.label = i18n::label(name) + " " + std::to_string(++count[name]);
 		o.detail = s.addon_name + (s.release.empty() ? "" : " \xC2\xB7 " + s.release);
 		options.push_back(o);
 	}
@@ -223,7 +239,7 @@ void PlayerScreen::rebuild_subtitle_options() {
 		return t.name == OTHER_TAB ? 3 : t.name == preferred ? 0 : t.name == "English" ? 1 : 2;
 	};
 	std::vector<LanguageTab> tabs;
-	for (const auto &[name, n] : per_language) tabs.push_back({ name, name + " (" + std::to_string(n) + ")" });
+	for (const auto &[name, n] : per_language) tabs.push_back({ name, i18n::label(name) + " (" + std::to_string(n) + ")" });
 	std::stable_sort(tabs.begin(), tabs.end(), [&](const LanguageTab &a, const LanguageTab &b) { return group(a) < group(b); });
 	float x = 0;
 	for (LanguageTab &t : tabs) {
@@ -300,7 +316,7 @@ void PlayerScreen::choose_subtitle(const SubtitleOption &option, bool remember) 
 	addon_cues_for_ = -1;
 	const SubtitleItem item = addon_subs_[option.id];
 	const int index = option.id;
-	if (remember) toast_.show("Loading subtitles\xE2\x80\xA6");
+	if (remember) toast_.show(i18n::tr(i18n::Text::PLAYER_LOADING_SUBTITLES));
 	std::weak_ptr<int> alive = alive_;
 	http::get(item.url, [this, alive, index, lang = item.lang](http::Response &res) {
 		if (alive.expired() || sub_kind_ != SubtitleOption::ADDON || sub_id_ != index) return;
@@ -309,7 +325,7 @@ void PlayerScreen::choose_subtitle(const SubtitleOption &option, bool remember) 
 		// are decoded by the subtitle's language.
 		if (!res.ok() || !parse_subtitles(to_utf8(res.body, lang), cues)) {
 			platform::log("player: subtitles failed (%s, HTTP %d)", res.error.c_str(), res.status);
-			toast_.show("Couldn't load these subtitles", true);
+			toast_.show(i18n::tr(i18n::Text::PLAYER_SUBTITLES_ERROR), true);
 			return;
 		}
 		addon_cues_.swap(cues);
@@ -432,7 +448,7 @@ void PlayerScreen::update(double dt, uint32_t pressed) {
 			if (pressed & platform::BUTTON_TRIANGLE) {
 				aspect_ = (aspect_ + 1) % ASPECT_COUNT;
 				write_pref(PREF_ASPECT, ASPECTS[aspect_].name);
-				toast_.show(std::string("Aspect ratio: ") + ASPECTS[aspect_].name);
+				toast_.show(std::string(i18n::tr(i18n::Text::PLAYER_ASPECT_PREFIX)) + aspect_label(aspect_));
 			}
 		}
 	}
@@ -499,7 +515,7 @@ void PlayerScreen::draw_subtitles(Renderer &r, float vx, float vy, float vw, flo
 void PlayerScreen::draw_menu(Renderer &r) {
 	r.push(W / 2, H / 2, 1.0f, menu_); // fades in and out as a whole
 	r.rect(panel_x(), 0, panel_w(), H, theme::BASE_100.with_alpha(0.94f));
-	r.text(fonts_.page_header, "Audio & subtitles", col_sub_x(), S(96), theme::BASE_CONTENT);
+	r.text(fonts_.page_header, i18n::tr(i18n::Text::PLAYER_AUDIO_SUBTITLES), col_sub_x(), S(96), theme::BASE_CONTENT);
 
 	auto column = [&](int index, const char *title, float x, float w, float top,
 						  const std::vector<std::pair<std::string, std::string>> &rows, int active) {
@@ -523,7 +539,7 @@ void PlayerScreen::draw_menu(Renderer &r) {
 			}
 			r.pop();
 		}
-		if (rows.empty()) r.text(fonts_.body, "None in this video", x, top + S(30), theme::BASE_CONTENT_MUTED);
+		if (rows.empty()) r.text(fonts_.body, i18n::tr(i18n::Text::PLAYER_NO_TRACKS), x, top + S(30), theme::BASE_CONTENT_MUTED);
 	};
 
 	std::vector<std::pair<std::string, std::string>> subs, audio;
@@ -535,7 +551,7 @@ void PlayerScreen::draw_menu(Renderer &r) {
 	}
 	for (int i = 0; i < (int)audio_tracks_.size(); i++) {
 		// "Spanish · Doblaje · 5.1 AC3": codec and channels on the second line.
-		const std::string &label = audio_tracks_[i].label;
+		const std::string label = track_display_label(audio_tracks_[i].label);
 		const size_t dot = label.rfind(" \xC2\xB7 ");
 		if (dot == std::string::npos) {
 			audio.push_back({ label, "" });
@@ -544,8 +560,8 @@ void PlayerScreen::draw_menu(Renderer &r) {
 		}
 		if (audio_tracks_[i].id == player_->audio_track()) active_audio = i;
 	}
-	column(0, "Subtitles", col_sub_x(), col_sub_w(), sub_list_top(), subs, active_sub);
-	column(1, "Audio", col_audio_x(), col_audio_w(), list_top(), audio, active_audio);
+	column(0, i18n::tr(i18n::Text::PLAYER_SUBTITLES), col_sub_x(), col_sub_w(), sub_list_top(), subs, active_sub);
+	column(1, i18n::tr(i18n::Text::PLAYER_AUDIO), col_audio_x(), col_audio_w(), list_top(), audio, active_audio);
 
 	// Language tabs in their box over the subtitles column: the ones that fit,
 	// widened to fill it, with "<" / ">" on the side of the others.
@@ -571,9 +587,9 @@ void PlayerScreen::draw_menu(Renderer &r) {
 	if (more_left) r.text(fonts_.body, "<", col_sub_x() - S(10) - fonts_.body.measure("<"), arrow_y, theme::BASE_CONTENT_MUTED);
 	if (more_right) r.text(fonts_.body, ">", col_sub_x() + col_sub_w() + S(10), arrow_y, theme::BASE_CONTENT_MUTED);
 
-	std::vector<ui::Hint> hints = { { "\xC3\x97", "Select" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Column" } };
-	if (sub_tabs_.size() > 1) hints.push_back({ "L1 R1", "Language" });
-	hints.push_back({ "\xE2\x97\x8B", "Close" });
+	std::vector<ui::Hint> hints = { { "\xC3\x97", i18n::tr(i18n::Text::PLAYER_SELECT) }, { "\xE2\x97\x80 \xE2\x96\xB6", i18n::tr(i18n::Text::PLAYER_COLUMN) } };
+	if (sub_tabs_.size() > 1) hints.push_back({ "L1 R1", i18n::tr(i18n::Text::PLAYER_LANGUAGE) });
+	hints.push_back({ "\xE2\x97\x8B", i18n::tr(i18n::Text::PLAYER_CLOSE) });
 	ui::hints(r, fonts_.small, hints, col_sub_x(), H - S(52));
 	r.pop();
 }
@@ -594,11 +610,11 @@ void PlayerScreen::draw(Renderer &r) {
 	std::string status;
 	bool error = false;
 	switch (state) {
-		case VideoPlayer::OPENING: status = "Loading\xE2\x80\xA6"; break;
-		case VideoPlayer::BUFFERING: status = "Buffering\xE2\x80\xA6"; break;
-		case VideoPlayer::PAUSED: status = "Paused"; break;
+		case VideoPlayer::OPENING: status = i18n::tr(i18n::Text::LOADING); break;
+		case VideoPlayer::BUFFERING: status = i18n::tr(i18n::Text::PLAYER_BUFFERING); break;
+		case VideoPlayer::PAUSED: status = i18n::tr(i18n::Text::PLAYER_PAUSED); break;
 		case VideoPlayer::FAILED:
-			status = player_->error() + "  \xC2\xB7  Press \xE2\x97\x8B to choose another stream";
+			status = player_->error() + "  \xC2\xB7  " + i18n::tr(i18n::Text::PLAYER_CHOOSE_STREAM);
 			error = true;
 			break;
 		default: break;
@@ -635,8 +651,8 @@ void PlayerScreen::draw(Renderer &r) {
 		r.text(fonts_.body, format_time(position), x, ty, theme::BASE_CONTENT);
 		const std::string total = format_time(duration);
 		r.text(fonts_.body, total, right - fonts_.body.measure(total), ty, theme::BASE_CONTENT);
-		const std::vector<ui::Hint> hints = { { "\xC3\x97", "Play / Pause" }, { "\xE2\x97\x80 \xE2\x96\xB6", "Seek" },
-			{ "\xE2\x96\xB2", "Audio & subtitles" }, { "\xE2\x96\xB3", "Aspect ratio" }, { "\xE2\x97\x8B", "Back" } };
+		const std::vector<ui::Hint> hints = { { "\xC3\x97", i18n::tr(i18n::Text::PLAYER_PLAY_PAUSE) }, { "\xE2\x97\x80 \xE2\x96\xB6", i18n::tr(i18n::Text::PLAYER_SEEK) },
+			{ "\xE2\x96\xB2", i18n::tr(i18n::Text::PLAYER_AUDIO_SUBTITLES) }, { "\xE2\x96\xB3", i18n::tr(i18n::Text::PLAYER_ASPECT) }, { "\xE2\x97\x8B", i18n::tr(i18n::Text::BACK) } };
 		ui::hints(r, fonts_.small, hints, (W - ui::hints_width(fonts_.small, hints)) / 2, ty);
 		r.pop();
 	}
