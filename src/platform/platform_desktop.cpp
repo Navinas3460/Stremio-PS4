@@ -60,6 +60,8 @@ uint32_t button_for_word(const std::string &w) {
 	if (w == "back") return platform::BUTTON_BACK;
 	if (w == "l1") return platform::BUTTON_L1;
 	if (w == "r1") return platform::BUTTON_R1;
+	if (w == "l2") return platform::BUTTON_L2;
+	if (w == "r2") return platform::BUTTON_R2;
 	if (w == "triangle") return platform::BUTTON_TRIANGLE;
 	if (w == "square") return platform::BUTTON_SQUARE;
 	return 0;
@@ -257,6 +259,8 @@ bool poll(uint32_t &held) {
 	if (k[SDL_SCANCODE_ESCAPE] || k[SDL_SCANCODE_BACKSPACE]) held |= BUTTON_BACK;
 	if (k[SDL_SCANCODE_Q] || k[SDL_SCANCODE_PAGEUP]) held |= BUTTON_L1;
 	if (k[SDL_SCANCODE_E] || k[SDL_SCANCODE_PAGEDOWN]) held |= BUTTON_R1;
+	if (k[SDL_SCANCODE_Z]) held |= BUTTON_L2;
+	if (k[SDL_SCANCODE_C]) held |= BUTTON_R2;
 	if (k[SDL_SCANCODE_T]) held |= BUTTON_TRIANGLE;
 	if (k[SDL_SCANCODE_F]) held |= BUTTON_SQUARE;
 	if (g_pad) {
@@ -270,6 +274,10 @@ bool poll(uint32_t &held) {
 		if (b(SDL_CONTROLLER_BUTTON_START)) held |= BUTTON_OPTIONS;
 		if (b(SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) held |= BUTTON_L1;
 		if (b(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) held |= BUTTON_R1;
+		if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 16000)
+			held |= BUTTON_L2;
+		if (SDL_GameControllerGetAxis(g_pad, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 16000)
+			held |= BUTTON_R2;
 		if (b(SDL_CONTROLLER_BUTTON_Y)) held |= BUTTON_TRIANGLE;
 		if (b(SDL_CONTROLLER_BUTTON_X)) held |= BUTTON_SQUARE;
 	}

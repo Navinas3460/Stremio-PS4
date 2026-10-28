@@ -64,6 +64,7 @@ public:
 
 	// Library + add-ons, then the board and notifications.
 	void refresh();
+	bool account_sync_busy() const { return sync_in_progress_; }
 
 	// stremio-core ContinueWatchingPreview: in-progress items plus items with
 	// new episodes, newest first.
@@ -83,13 +84,32 @@ public:
 	void discover_open();
 	void discover_select(const std::string &type, int catalog, const std::string &filter);
 	void discover_load_more();
-	bool addons_loaded() const { return addons_loaded_; }
+        const std::vector<Addon> &addons() const { return addons_; }
+        bool addons_loaded() const { return addons_loaded_; }
 
 	bool library_loaded() const { return library_loaded_; }
 	const std::string &library_error() const { return library_error_; }
 	const std::string &addons_error() const { return addons_error_; }
 
-	// Meta details from the first add-on that provides them.
+	// Account collection changes. The UI must confirm the exact target first.
+        enum class AddonChangeResult {
+                OK,
+                NOT_SIGNED_IN,
+                BUSY,
+                ALREADY_INSTALLED,
+                NOT_INSTALLED,
+                PROTECTED,
+                NEEDS_CONFIGURATION,
+                INVALID_MANIFEST,
+                NETWORK_ERROR,
+                SAVE_ERROR,
+                SESSION_CHANGED
+        };
+        using AddonChangeCallback = std::function<void(AddonChangeResult)>;
+        void change_addon(const Addon &addon, bool install, AddonChangeCallback cb);
+        bool addon_change_busy() const { return addon_change_busy_; }
+
+        // Meta details from the first add-on that provides them.
 	using MetaCallback = std::function<void(bool ok, const MetaItem &meta, const std::string &error)>;
 	void request_meta(const std::string &type, const std::string &id, MetaCallback cb);
 	// Streams for one video from every add-on that provides them:
@@ -163,7 +183,9 @@ private:
 	void poll_link();
 	int64_t cw_time(const LibraryItem &item) const;
 
-	bool demo_ = false;
+	bool addon_change_busy_ = false;
+
+        bool demo_ = false;
 	std::string auth_key_;
 	Json user_;
 	int gen_ = 0; // bumped on logout: responses for the old session are dropped
@@ -175,6 +197,9 @@ private:
 	bool addons_loaded_ = false;
 	std::string addons_error_;
 	int pending_syncs_ = 0;
+	bool sync_in_progress_ = false;
+	bool refresh_requested_ = false;
+	int board_gen_ = 0;
 
 	struct Notif {
 		int count = 0;

@@ -3,6 +3,7 @@
 #include "../core/stremio.h"
 #include "../platform/platform.h"
 #include "components.h"
+#include "i18n.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -23,8 +24,6 @@ float chip_gap() { return S(12); }
 float chips_cy() { return S(78); } // centred on the title
 float grid_top() { return S(150); }
 float view_h() { return tabs::content_bottom() - grid_top(); }
-
-const char *SORT_LABELS[] = { "Recent", "A\xE2\x80\x93Z", "Most watched" }; // Stremio::LibrarySort order
 
 // The filters last chosen, kept while the app runs (switching tabs recreates
 // the screen).
@@ -48,11 +47,14 @@ void LibraryScreen::rebuild(bool keep_selection) {
 	const std::vector<std::string> types = s.library_types();
 	if (std::find(types.begin(), types.end(), g_type) == types.end()) g_type.clear();
 	std::vector<Chip> chips;
-	chips.push_back({ "All", "" });
+        chips.push_back({ i18n::label("All"), "" });
 	for (const std::string &t : types) chips.push_back({ type_label(t), t });
 	for (int i = 0; i < 3; i++) {
 		Chip c;
-		c.label = SORT_LABELS[i];
+                c.label = i == 0
+                        ? i18n::tr(i18n::Text::SORT_RECENT)
+                        : i == 2 ? i18n::tr(i18n::Text::SORT_MOST_WATCHED)
+                        : i18n::tr(i18n::Text::SORT_ALPHABETICAL);
 		c.sort = i;
 		chips.push_back(c);
 	}
@@ -65,7 +67,7 @@ void LibraryScreen::rebuild(bool keep_selection) {
 		if (chips[i].label == focused_chip) chip_ = (int)i;
 	}
 	// Types from the left, after the title; sort orders against the right edge.
-	float x = MARGIN_X + fonts_.page_header.measure("Library") + S(48);
+        float x = MARGIN_X + fonts_.page_header.measure(i18n::tr(i18n::Text::LIBRARY)) + S(48);
 	for (Chip &c : chips) {
 		c.w = ui::chip_width(fonts_.body, c.label);
 		if (c.sort >= 0) continue;
@@ -88,9 +90,10 @@ void LibraryScreen::rebuild(bool keep_selection) {
 	status_.clear();
 	status_is_error_ = false;
 	if (!s.library_loaded()) {
-		status_ = "Loading your library\xE2\x80\xA6";
+                status_ = i18n::tr(i18n::Text::LOADING_LIBRARY);
 	} else if (!s.library_error().empty()) {
-		status_ = "Couldn't load your library: " + s.library_error();
+                status_ = std::string(i18n::tr(i18n::Text::LIBRARY_LOAD_ERROR))
+                        + s.library_error();
 		status_is_error_ = true;
 	} else {
 		for (const LibraryItem *item : s.library(g_type, (Stremio::LibrarySort)g_sort)) {
@@ -99,7 +102,8 @@ void LibraryScreen::rebuild(bool keep_selection) {
 			c.subtitle = item->episode_label();
 			if (item->is_in_continue_watching()) c.progress = item->progress();
 			const int n = s.notification_count(item->id);
-			if (n > 0) c.badge = std::to_string(n) + " new";
+                        if (n > 0) c.badge = std::to_string(n)
+                                + i18n::tr(n == 1 ? i18n::Text::NEW_SINGULAR_SUFFIX : i18n::Text::NEW_PLURAL_SUFFIX);
 			c.images = item->poster_images();
 			c.meta_id = item->id;
 			c.type = item->type;
@@ -108,7 +112,7 @@ void LibraryScreen::rebuild(bool keep_selection) {
 			if (f != focus.end()) c.focus = f->second;
 			cards_.push_back(c);
 		}
-		if (cards_.empty()) status_ = "Your library is empty. Open a title and press \xE2\x96\xB3 to add it.";
+                if (cards_.empty()) status_ = i18n::tr(i18n::Text::EMPTY_LIBRARY);
 	}
 	selected_ = 0;
 	for (size_t i = 0; i < cards_.size(); i++) {
@@ -213,7 +217,7 @@ void LibraryScreen::draw(Renderer &r) {
 
 	// Header band (covers cards scrolled under it): title and filter chips.
 	r.rect(0, 0, W, grid_top() - S(24), theme::BASE_100);
-	r.text(fonts_.page_header, "Library", MARGIN_X, title_baseline(), theme::BASE_CONTENT);
+        r.text(fonts_.page_header, i18n::tr(i18n::Text::LIBRARY), MARGIN_X, title_baseline(), theme::BASE_CONTENT);
 	for (int pass = 0; pass < 2; pass++) { // the focused chip last, over its neighbours
 		for (const Chip &c : chips_) {
 			if ((pass == 0) == (c.focus > 0.5f)) continue;

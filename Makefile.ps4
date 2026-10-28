@@ -22,14 +22,15 @@ OUT         := build_ps4
 STAGE       := $(OUT)/pkg
 
 SRCS        := src/main.cpp src/platform/platform_ps4.cpp src/render/renderer.cpp src/render/font.cpp src/render/bidi.cpp \
-               src/core/charset.cpp src/core/json.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
+               src/core/charset.cpp src/core/json.cpp src/core/addon_config.cpp src/core/models.cpp src/core/stremio.cpp src/core/subtitles.cpp \
                src/net/http.cpp src/net/http_ps4.cpp src/net/images.cpp src/net/range_reader.cpp src/net/byte_source.cpp src/net/urls.cpp \
                src/torrent/bencode.cpp src/torrent/dht.cpp src/torrent/magnet.cpp src/torrent/net.cpp src/torrent/sha1.cpp \
                src/torrent/torrent_stream.cpp src/torrent/trackers.cpp \
-               src/ui/home_screen.cpp src/ui/discover_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \
+               src/ui/addons_screen.cpp src/ui/home_screen.cpp src/ui/discover_screen.cpp src/ui/login_screen.cpp src/ui/details_screen.cpp src/ui/player_screen.cpp \
                src/ui/card.cpp src/ui/components.cpp src/ui/tab_bar.cpp src/ui/theme.cpp src/ui/search_screen.cpp src/ui/library_screen.cpp src/ui/settings_screen.cpp \
                src/video/video_avplayer.cpp src/video/video_ffmpeg.cpp src/video/video_player.cpp
 OBJS        := $(patsubst src/%.cpp,$(OUT)/obj/%.o,$(SRCS))
+OBJS        += $(OUT)/obj/vendor/qrcodegen.o
 
 # FFmpeg: built by tools/build_ffmpeg_ps4.sh into ffmpeg_ps4/install.
 FFMPEG_LIBS := -Lffmpeg_ps4/install/lib -lavformat -lavcodec -lswscale -lswresample -lavutil
@@ -56,9 +57,15 @@ STAGED      := eboot.bin sce_sys/param.sfo sce_sys/icon0.png sce_sys/about/right
 
 all: $(OUT)/$(CONTENT_ID).pkg
 
-$(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h) Makefile.ps4 VERSION
+$(OUT)/obj/%.o: src/%.cpp $(wildcard src/*/*.h src/ui/locales/*.h) Makefile.ps4 VERSION
 	@mkdir -p $(dir $@)
 	clang++ $(CXXFLAGS) -c -o $@ $<
+
+$(OUT)/obj/vendor/qrcodegen.o: third_party/qrcodegen/qrcodegen.c third_party/qrcodegen/qrcodegen.h Makefile.ps4
+	@mkdir -p $(dir $@)
+	clang --target=x86_64-pc-freebsd12-elf -fPIC -O2 -std=c99 \
+	    -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include \
+	    -Wall -c -o $@ $<
 
 $(OUT)/stremio_ps4.elf: $(OBJS)
 	ld.lld $(OBJS) -o $@ $(LDFLAGS)
