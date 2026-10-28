@@ -1,8 +1,11 @@
 #include "tab_bar.h"
 
+#include "addons_screen.h"
+
 #include "../platform/platform.h"
 #include "discover_screen.h"
 #include "home_screen.h"
+#include "i18n.h"
 #include "library_screen.h"
 #include "search_screen.h"
 #include "settings_screen.h"
@@ -14,7 +17,14 @@ namespace tabs {
 namespace {
 using theme::S;
 const float W = 1920, H = 1080;
-const char *LABELS[COUNT] = { "Home", "Discover", "Search", "Library", "Settings" };
+const i18n::Text LABELS[COUNT] = {
+	i18n::Text::HOME,
+	i18n::Text::DISCOVER,
+	i18n::Text::SEARCH,
+        i18n::Text::LIBRARY,
+        i18n::Text::ADDONS,
+	i18n::Text::SETTINGS
+};
 } // namespace
 
 void open(Tab tab, Fonts &fonts, Navigator &nav) {
@@ -23,7 +33,8 @@ void open(Tab tab, Fonts &fonts, Navigator &nav) {
 		case HOME: s = new HomeScreen(fonts, nav); break;
 		case DISCOVER: s = new DiscoverScreen(fonts, nav); break;
 		case SEARCH: s = new SearchScreen(fonts, nav); break;
-		case LIBRARY: s = new LibraryScreen(fonts, nav); break;
+                case LIBRARY: s = new LibraryScreen(fonts, nav); break;
+                case ADDONS: s = new AddonsScreen(fonts, nav); break;
 		default: s = new SettingsScreen(fonts, nav); break;
 	}
 	nav.replace_root(std::unique_ptr<Screen>(s));
@@ -65,7 +76,8 @@ void TabBar::draw(Renderer &r, Fonts &fonts) {
 	for (int pass = 0; pass < 2; pass++) {
 		for (int i = 0; i < COUNT; i++) {
 			if ((pass == 0) == (focus_[i] > 0.5f)) continue;
-			ui::chip(r, fonts.card_title, LABELS[i], box_x + box_pad() + i * tab_w(), box_y() + box_pad(), tab_w(), tab_h(),
+			ui::chip(r, fonts.card_title,
+                                        fonts.card_title.ellipsize(i18n::tr(LABELS[i]), tab_w() - S(32)), box_x + box_pad() + i * tab_w(), box_y() + box_pad(), tab_w(), tab_h(),
 					i == active_, focus_[i], theme::BASE_200);
 		}
 	}

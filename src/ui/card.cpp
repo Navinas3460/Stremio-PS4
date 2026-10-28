@@ -4,6 +4,7 @@
 #include "../net/images.h"
 #include "components.h"
 #include "details_screen.h"
+#include "i18n.h"
 
 #include <algorithm>
 #include <map>
@@ -23,9 +24,9 @@ Card Card::from_meta(const MetaItem &m) {
 }
 
 std::string type_label(const std::string &type) {
-	if (type == "movie") return "Movies";
-	if (type == "series") return "Series";
-	if (type == "channel") return "Channels";
+        if (type == "movie") return i18n::label("Movies");
+        if (type == "series") return i18n::label("Series");
+        if (type == "channel") return i18n::label("Channels");
 	if (type == "tv") return "TV";
 	std::string label = type;
 	if (!label.empty()) label[0] = (char)toupper((unsigned char)label[0]);
@@ -122,7 +123,7 @@ void open_details(const Card &c, Fonts &fonts, Navigator &nav) {
 
 bool CardRow::from_board(const BoardRow &b, const std::string &loading, const std::string &error_prefix, CardRow &out) {
 	out = CardRow();
-	out.title = b.title;
+        out.title = i18n::row_title(b.title);
 	if (b.loading) {
 		out.status = loading;
 	} else if (!b.error.empty()) {

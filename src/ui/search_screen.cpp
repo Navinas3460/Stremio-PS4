@@ -3,6 +3,7 @@
 #include "../core/stremio.h"
 #include "../platform/platform.h"
 #include "components.h"
+#include "i18n.h"
 #include "theme.h"
 
 #include <algorithm>
@@ -122,7 +123,10 @@ void SearchScreen::rebuild_rows() {
 	std::vector<CardRow> rows;
 	for (const BoardRow &b : s.search_results()) {
 		CardRow row;
-		if (CardRow::from_board(b, "Searching\xE2\x80\xA6", "Couldn't search this catalog: ", row)) rows.push_back(row);
+                if (CardRow::from_board(b,
+                        i18n::tr(i18n::Text::SEARCHING),
+                        i18n::tr(i18n::Text::CATALOG_SEARCH_ERROR),
+                        row)) rows.push_back(row);
 	}
 	carry_over(rows, rows_); // keep the position in rows that are still there
 	rows_.swap(rows);
@@ -184,8 +188,10 @@ void SearchScreen::draw(Renderer &r) {
 	// Results (drawn first: the header and keyboard bands cover the overflow).
 	if (rows_.empty()) {
 		const bool searching = search_delay_ > 0 || query_ != stremio().search_query();
-		const std::string hint = query_.empty() ? "Search for movies and series with the keyboard"
-				: searching ? "" : "No results for \"" + query_ + "\"";
+                const std::string hint = query_.empty()
+                        ? i18n::tr(i18n::Text::SEARCH_HINT)
+                        : searching ? std::string()
+                        : std::string(i18n::tr(i18n::Text::NO_RESULTS_PREFIX)) + query_ + "\"";
 		r.text(fonts_.body, fonts_.body.ellipsize(hint, view_w()), results_x(), content_top() + S(40), theme::BASE_CONTENT_MUTED);
 	}
 	float y = content_top() - content_scroll_;
@@ -198,7 +204,7 @@ void SearchScreen::draw(Renderer &r) {
 	// Left band: query + keyboard (covers cards scrolled to the left).
 	r.rect(0, content_top() - S(10), results_x() - S(24), tabs::content_bottom() - content_top() + S(10), theme::BASE_100);
 	r.rect(0, 0, W, content_top() - S(10), theme::BASE_100);
-	r.text(fonts_.page_header, "Search", MARGIN_X, S(96), theme::BASE_CONTENT);
+        r.text(fonts_.page_header, i18n::tr(i18n::Text::SEARCH), MARGIN_X, S(96), theme::BASE_CONTENT);
 
 	// The query field (daisyUI input): ringed while typing.
 	const float ring = area_ == KEYBOARD ? 1.0f : 0.0f;
@@ -207,7 +213,7 @@ void SearchScreen::draw(Renderer &r) {
 	r.pop();
 	const float qx = MARGIN_X + S(20), qy = content_top() + query_h() / 2 + S(10);
 	if (query_.empty()) {
-		r.text(fonts_.card_title, "Type a title", qx, qy, theme::BASE_CONTENT_MUTED);
+                r.text(fonts_.card_title, i18n::tr(i18n::Text::TYPE_A_TITLE), qx, qy, theme::BASE_CONTENT_MUTED);
 	} else {
 		const std::string shown = query_.size() > 26 ? "\xE2\x80\xA6" + query_.substr(query_.size() - 25) : query_;
 		r.text(fonts_.card_title, shown, qx, qy, theme::BASE_CONTENT);
@@ -224,11 +230,12 @@ void SearchScreen::draw(Renderer &r) {
 		ui::begin_focus(r, x, ky, w, key(), theme::radius_field(), f);
 		r.rounded_rect(x, ky, w, key(), theme::radius_field(), mix(theme::BASE_200, theme::PRIMARY, 0.35f * f));
 		Font &font = k.span > 1 ? fonts_.body : fonts_.card_title;
-		r.text(font, k.label, x + (w - font.measure(k.label)) / 2, ky + key() / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
+                const std::string shown_label = i18n::label(k.label);
+                r.text(font, shown_label, x + (w - font.measure(shown_label)) / 2, ky + key() / 2 + font.size() * 0.36f, theme::BASE_CONTENT);
 		r.pop(); // keys stay bright: the whole keyboard is one control
 	}
 	const float hint_y = keys_top() + (keys_.back().row + 1) * (key() + key_gap()) + S(30);
-	ui::hints(r, fonts_.small, { { "\xE2\x97\x8B", "Delete" }, { "\xE2\x96\xB6", "Results" } }, MARGIN_X, hint_y);
+        ui::hints(r, fonts_.small, { { "\xE2\x97\x8B", i18n::label("Delete") }, { "\xE2\x96\xB6", i18n::label("Results") } }, MARGIN_X, hint_y);
 
 	bar_.draw(r, fonts_);
 }

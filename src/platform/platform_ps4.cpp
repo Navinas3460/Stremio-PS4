@@ -197,6 +197,8 @@ bool poll(uint32_t &held) {
 	if (b & ORBIS_PAD_BUTTON_OPTIONS) held |= BUTTON_OPTIONS;
 	if (b & ORBIS_PAD_BUTTON_L1) held |= BUTTON_L1;
 	if (b & ORBIS_PAD_BUTTON_R1) held |= BUTTON_R1;
+	if (b & ORBIS_PAD_BUTTON_L2) held |= BUTTON_L2;
+	if (b & ORBIS_PAD_BUTTON_R2) held |= BUTTON_R2;
 	if (b & ORBIS_PAD_BUTTON_TRIANGLE) held |= BUTTON_TRIANGLE;
 	if (b & ORBIS_PAD_BUTTON_SQUARE) held |= BUTTON_SQUARE;
 	// Left stick works like the D-pad.

@@ -14,7 +14,7 @@ public:
 	void draw(Renderer &r) override;
 
 private:
-	enum Action { SIGN_OUT, UI_SCALE, VIDEO_PLAYER };
+	enum Action { SIGN_OUT, UI_SCALE, VIDEO_PLAYER, INTERFACE_LANGUAGE };
 	struct Item {
 		Action action;
 		std::string label, value;

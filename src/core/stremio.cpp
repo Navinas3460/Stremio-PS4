@@ -64,7 +64,7 @@ void Stremio::fetch_json(const std::string &url, std::function<void(bool, const 
 	http::get(
 			url,
 			[cb](http::Response &res) {
-				if (!res.error.empty()) return cb(false, Json(), res.error);
+				if (!res.ok()) return cb(false, Json(), res.error.empty() ? "HTTP " + std::to_string(res.status) : res.error);
 				auto json = std::static_pointer_cast<Json>(res.payload);
 				if (!json) return cb(false, Json(), "HTTP " + std::to_string(res.status));
 				cb(true, *json, "");
@@ -76,11 +76,13 @@ void Stremio::fetch_json(const std::string &url, std::function<void(bool, const 
 static void unwrap(http::Response &res, const std::function<void(bool, const Json &, const std::string &)> &cb) {
 	if (!res.error.empty()) return cb(false, Json(), res.error);
 	auto json = std::static_pointer_cast<Json>(res.payload);
-	if (!json || !json->is_object()) return cb(false, Json(), "unexpected response (HTTP " + std::to_string(res.status) + ")");
-	if (json->has("error")) {
+	// Preserve structured API errors, including on non-2xx responses.
+	if (json && json->is_object() && json->has("error")) {
 		const Json &e = (*json)["error"];
 		return cb(false, Json(), e.is_object() ? e["message"].as_string("unknown error") : e.dump());
 	}
+	if (!res.ok()) return cb(false, Json(), "HTTP " + std::to_string(res.status));
+	if (!json || !json->is_object()) return cb(false, Json(), "unexpected response (HTTP " + std::to_string(res.status) + ")");
 	if (json->has("result")) return cb(true, (*json)["result"], "");
 	cb(false, Json(), "malformed response");
 }
@@ -149,6 +151,12 @@ void Stremio::logout() {
 	auth_key_.clear();
 	user_ = Json();
 	gen_++;
+	sync_in_progress_ = false;
+	refresh_requested_ = false;
+	pending_syncs_ = 0;
+	board_gen_++;
+	library_error_.clear();
+	addons_error_.clear();
 	library_.clear();
 	library_loaded_ = false;
 	addons_.clear();
@@ -254,6 +262,14 @@ static const char *DEMO_LIBRARY = R"([
 
 void Stremio::refresh() {
 	if (!logged_in()) return;
+	if (sync_in_progress_) {
+		refresh_requested_ = true;
+		return;
+	}
+	sync_in_progress_ = true;
+	refresh_requested_ = false;
+	addons_loaded_ = false;
+	board_gen_++; // Ignore responses belonging to the previous board.
 #if defined(STREMIO_DEV)
 	if (demo_) {
 		pending_syncs_ = 1;
@@ -317,15 +333,38 @@ void Stremio::sync_addons() {
 	body.set("type", "AddonCollectionGet").set("authKey", auth_key_).set("update", true);
 	call_api("addonCollectionGet", body, [this, gen](bool ok, const Json &result, const std::string &error) {
 		if (gen != gen_) return;
-		if (!ok) {
-			addons_error_ = error;
-			platform::log("add-ons sync failed: %s", error.c_str());
-		} else {
-			addons_.clear();
+		bool valid = ok && result["addons"].is_array();
+		std::vector<Addon> next;
+		if (valid) {
 			for (const Json &d : result["addons"].elements()) {
-				if (d.is_object()) addons_.push_back(Addon::from_json(d));
+				if (!d.is_object()
+						|| !d["transportUrl"].is_string()
+						|| d["transportUrl"].as_string().empty()
+						|| !d["manifest"].is_object()
+						|| !d["manifest"]["id"].is_string()
+						|| d["manifest"]["id"].as_string().empty()) {
+					valid = false;
+					break;
+				}
+				next.push_back(Addon::from_json(d));
 			}
+		}
+		if (!valid) {
+			addons_error_ = ok ? "Invalid add-on collection response" : error;
+			platform::log("add-ons sync failed: %s", addons_error_.c_str());
+		} else {
+			const std::string previous_catalog = discover_catalog_key();
+			addons_.swap(next);
 			addons_error_.clear();
+			if (discover_opened_) {
+				// Preserve the selected catalog by identity, not by old indices.
+				discover_lists(previous_catalog);
+				++discover_gen_;
+				discover_.items.clear();
+				discover_.loading = false;
+				discover_.has_more = false;
+				discover_.error.clear();
+			}
 			platform::log("add-ons: %zu", addons_.size());
 		}
 		auto done = [this, gen] {
@@ -386,7 +425,14 @@ void Stremio::add_extra_addons(std::vector<std::string> urls, std::function<void
 #endif
 
 void Stremio::after_sync() {
+	if (!sync_in_progress_ || pending_syncs_ <= 0) return;
 	if (--pending_syncs_ > 0) return;
+	sync_in_progress_ = false;
+	if (refresh_requested_) {
+		refresh_requested_ = false;
+		refresh();
+		return;
+	}
 	load_board();
 	discover_rebuild();
 	pull_notifications();
@@ -506,7 +552,10 @@ void Stremio::load_board() {
 	}
 	board_rev++;
 	const int gen = gen_;
-	fetch_rows(board_, board_rev, [this, gen] { return gen == gen_; });
+	const int board_generation = ++board_gen_;
+	fetch_rows(board_, board_rev, [this, gen, board_generation] {
+		return gen == gen_ && board_generation == board_gen_;
+	});
 }
 
 void Stremio::fetch_rows(std::vector<BoardRow> &rows, int &rev, std::function<bool()> current) {
@@ -984,4 +1033,158 @@ void Stremio::push_library_item(LibraryItem item) {
 	call_api("datastorePut", body, [](bool ok, const Json &, const std::string &error) {
 		if (!ok) platform::log("couldn't save watch progress: %s", error.c_str());
 	});
+}
+
+// --- Account add-on collection changes -----------------------------------------------
+
+void Stremio::change_addon(const Addon &addon, bool install, AddonChangeCallback cb) {
+        using Result = AddonChangeResult;
+
+        if (!logged_in() || demo_) {
+                cb(Result::NOT_SIGNED_IN);
+                return;
+        }
+        if (addon_change_busy_) {
+                cb(Result::BUSY);
+                return;
+        }
+
+        const std::string url = addon.transport_url;
+        const std::string expected_id = addon.id;
+        const bool http_url = url.rfind("https://", 0) == 0
+                || url.rfind("http://", 0) == 0;
+        if (!http_url || expected_id.empty()) {
+                cb(Result::INVALID_MANIFEST);
+                return;
+        }
+
+        addon_change_busy_ = true;
+        const int generation = gen_;
+        auto finish = [this, generation, cb](Result result) {
+                addon_change_busy_ = false;
+                cb(generation == gen_ ? result : Result::SESSION_CHANGED);
+        };
+
+        auto edit_collection =
+                [this, generation, url, expected_id, install, finish](const Json &manifest) {
+                if (generation != gen_) {
+                        finish(Result::SESSION_CHANGED);
+                        return;
+                }
+
+                Json body = Json::object();
+                body.set("type", "AddonCollectionGet")
+                        .set("authKey", auth_key_)
+                        .set("update", true);
+
+                call_api("addonCollectionGet", body,
+                        [this, generation, url, expected_id, install, manifest, finish](
+                                bool ok, const Json &result, const std::string &) {
+                        if (generation != gen_) {
+                                finish(Result::SESSION_CHANGED);
+                                return;
+                        }
+                        if (!ok || !result["addons"].is_array()) {
+                                finish(Result::NETWORK_ERROR);
+                                return;
+                        }
+
+                        Json next = Json::array();
+                        bool found = false;
+                        for (const Json &descriptor : result["addons"].elements()) {
+                                if (!descriptor.is_object()
+                                        || !descriptor["transportUrl"].is_string()
+                                        || !descriptor["manifest"].is_object()) {
+                                        finish(Result::SAVE_ERROR);
+                                        return;
+                                }
+
+                                if (descriptor["transportUrl"].as_string() != url) {
+                                        next.push(descriptor);
+                                        continue;
+                                }
+
+                                found = true;
+                                if (install) {
+                                        finish(Result::ALREADY_INSTALLED);
+                                        return;
+                                }
+                                if (descriptor["flags"]["protected"].as_bool(false)) {
+                                        finish(Result::PROTECTED);
+                                        return;
+                                }
+                                if (descriptor["manifest"]["id"].as_string("") != expected_id) {
+                                        finish(Result::SAVE_ERROR);
+                                        return;
+                                }
+                        }
+
+                        if (!install && !found) {
+                                finish(Result::NOT_INSTALLED);
+                                return;
+                        }
+
+                        if (install) {
+                                Json descriptor = Json::object();
+                                descriptor.set("transportUrl", url)
+                                        .set("transportName", "http")
+                                        .set("manifest", manifest);
+                                next.push(descriptor);
+                        }
+
+                        Json save = Json::object();
+                        save.set("type", "AddonCollectionSet")
+                                .set("authKey", auth_key_)
+                                .set("addons", next);
+
+                        call_api("addonCollectionSet", save,
+                                [this, generation, finish](
+                                        bool saved, const Json &answer, const std::string &) {
+                                if (generation != gen_) {
+                                        finish(Result::SESSION_CHANGED);
+                                        return;
+                                }
+                                if (!saved || !answer["success"].as_bool(false)) {
+                                        finish(Result::SAVE_ERROR);
+                                        return;
+                                }
+                                // Prevent another action against the old local collection.
+                                addons_loaded_ = false;
+                                refresh();
+                                finish(Result::OK);
+                        });
+                });
+        };
+
+        if (!install) {
+                edit_collection(Json());
+                return;
+        }
+
+        fetch_json(url,
+                [generation, this, expected_id, edit_collection, finish](
+                        bool ok, const Json &manifest, const std::string &) {
+                if (generation != gen_) {
+                        finish(Result::SESSION_CHANGED);
+                        return;
+                }
+                if (!ok) {
+                        finish(Result::NETWORK_ERROR);
+                        return;
+                }
+                if (!manifest.is_object()
+                        || manifest["id"].as_string("") != expected_id
+                        || !manifest["name"].is_string()
+                        || !manifest["version"].is_string()
+                        || !manifest["resources"].is_array()
+                        || !manifest["types"].is_array()) {
+                        finish(Result::INVALID_MANIFEST);
+                        return;
+                }
+                if (manifest["behaviorHints"]["configurationRequired"].as_bool(false)) {
+                        finish(Result::NEEDS_CONFIGURATION);
+                        return;
+                }
+                edit_collection(manifest);
+        });
 }

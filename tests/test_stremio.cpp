@@ -307,3 +307,498 @@ TEST(stremio_add_and_remove_from_library) {
 	s.remove_from_library("tt0000001");
 	CHECK_EQ(count_puts(), before);
 }
+
+// --- Add-on management regression tests ---
+
+namespace {
+
+using ReviewResult = Stremio::AddonChangeResult;
+
+const char *REVIEW_URL = "https://review.example/manifest.json";
+
+Json review_manifest() {
+    return Json::parse(R"({
+        "id":"review",
+        "name":"Review add-on",
+        "version":"1.0.0",
+        "types":["movie"],
+        "resources":["stream"],
+        "catalogs":[]
+    })");
+}
+
+Addon review_addon() {
+    Json descriptor = Json::object();
+    descriptor.set("transportUrl", REVIEW_URL)
+        .set("manifest", review_manifest());
+    return Addon::from_json(descriptor);
+}
+
+int review_request_count(const std::string &tail) {
+    return (int)std::count_if(
+        fake::requests.begin(), fake::requests.end(),
+        [&](const http::Request &request) {
+            return ends_with(request.url, tail);
+        });
+}
+
+struct ReviewApi {
+    Json collection = Json::parse(ADDONS)["addons"];
+    Json manifest = review_manifest();
+    Json last_saved;
+    bool save_success = true;
+    bool fail_manifest = false;
+    int saves = 0;
+
+    void use() {
+        fake::handler = [this](const http::Request &request) {
+            if (request.url == REVIEW_URL) {
+                if (fail_manifest) return fake::json("{}", 503);
+                return fake::json(manifest.dump());
+            }
+            if (ends_with(request.url, "/addonCollectionGet")) {
+                Json result = Json::object();
+                result.set("addons", collection);
+                return fake::api_result(result.dump());
+            }
+            if (ends_with(request.url, "/addonCollectionSet")) {
+                ++saves;
+                last_saved = Json::parse(request.body);
+                if (!save_success) {
+                    return fake::api_result(R"({"success":false})");
+                }
+                collection = last_saved["addons"];
+                return fake::api_result(R"({"success":true})");
+            }
+            return answer(request);
+        };
+    }
+};
+
+} // namespace
+
+TEST(stremio_review_install_preserves_other_descriptors) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+
+    Json first = api.collection[0];
+    first.set("reviewUnknownField", "keep-me");
+    Json flags = Json::object();
+    flags.set("official", true).set("protected", true);
+    first.set("flags", flags);
+
+    Json original_collection = Json::array();
+    original_collection.push(first);
+    original_collection.push(api.collection[1]);
+    api.collection = original_collection;
+    const std::string before = api.collection.dump();
+    api.use();
+
+    int callbacks = 0;
+    ReviewResult result = ReviewResult::SAVE_ERROR;
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        ++callbacks;
+        result = value;
+    });
+
+    CHECK(s.addon_change_busy());
+    fake::settle();
+
+    CHECK(result == ReviewResult::OK);
+    CHECK_EQ(callbacks, 1);
+    CHECK_EQ(api.saves, 1);
+    CHECK(!s.addon_change_busy());
+    CHECK(!s.account_sync_busy());
+    CHECK_EQ(api.last_saved["authKey"].as_string(), "key");
+    CHECK_EQ(api.collection.size(), (size_t)3);
+    CHECK_EQ(api.collection[0].dump(), original_collection[0].dump());
+    CHECK_EQ(api.collection[1].dump(), original_collection[1].dump());
+    CHECK_EQ(original_collection.dump(), before);
+    CHECK_EQ(api.collection[2]["transportUrl"].as_string(), REVIEW_URL);
+    CHECK_EQ(api.collection[2]["manifest"]["id"].as_string(), "review");
+    CHECK_EQ(s.addons().size(), (size_t)3);
+}
+
+TEST(stremio_review_uninstall_preserves_other_descriptors) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    const std::string untouched = api.collection[1].dump();
+    const Addon target = s.addons()[0];
+    api.use();
+
+    int callbacks = 0;
+    ReviewResult result = ReviewResult::SAVE_ERROR;
+    s.change_addon(target, false, [&](ReviewResult value) {
+        ++callbacks;
+        result = value;
+    });
+    fake::settle();
+
+    CHECK(result == ReviewResult::OK);
+    CHECK_EQ(callbacks, 1);
+    CHECK_EQ(api.saves, 1);
+    CHECK_EQ(api.collection.size(), (size_t)1);
+    CHECK_EQ(api.collection[0].dump(), untouched);
+    CHECK_EQ(s.addons().size(), (size_t)1);
+    CHECK_EQ(s.addons()[0].id, "streams");
+}
+
+TEST(stremio_review_protected_uninstall_sends_no_save) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    Json protected_descriptor = api.collection[0];
+    Json flags = Json::object();
+    flags.set("protected", true);
+    protected_descriptor.set("flags", flags);
+    Json collection = Json::array();
+    collection.push(protected_descriptor);
+    collection.push(api.collection[1]);
+    api.collection = collection;
+    api.use();
+
+    ReviewResult result = ReviewResult::OK;
+    s.change_addon(s.addons()[0], false, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+
+    CHECK(result == ReviewResult::PROTECTED);
+    CHECK_EQ(api.saves, 0);
+    CHECK(!s.addon_change_busy());
+}
+
+TEST(stremio_review_existing_and_missing_send_no_save) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+
+    Json installed = Json::object();
+    installed.set("transportUrl", REVIEW_URL)
+        .set("manifest", review_manifest());
+    api.collection.push(installed);
+    api.use();
+
+    ReviewResult result = ReviewResult::OK;
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+    CHECK(result == ReviewResult::ALREADY_INSTALLED);
+    CHECK_EQ(api.saves, 0);
+
+    api.collection = Json::parse(ADDONS)["addons"];
+    s.change_addon(review_addon(), false, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+    CHECK(result == ReviewResult::NOT_INSTALLED);
+    CHECK_EQ(api.saves, 0);
+}
+
+TEST(stremio_review_invalid_configured_and_failed_manifests) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    api.use();
+
+    ReviewResult result = ReviewResult::OK;
+
+    api.manifest.set("id", "different-addon");
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+    CHECK(result == ReviewResult::INVALID_MANIFEST);
+    CHECK_EQ(api.saves, 0);
+
+    api.manifest = review_manifest();
+    Json hints = Json::object();
+    hints.set("configurationRequired", true);
+    api.manifest.set("behaviorHints", hints);
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+    CHECK(result == ReviewResult::NEEDS_CONFIGURATION);
+    CHECK_EQ(api.saves, 0);
+
+    api.fail_manifest = true;
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+    CHECK(result == ReviewResult::NETWORK_ERROR);
+    CHECK_EQ(api.saves, 0);
+    CHECK(!s.addon_change_busy());
+}
+
+TEST(stremio_review_busy_blocks_second_change) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    api.use();
+
+    int first_callbacks = 0;
+    int second_callbacks = 0;
+    ReviewResult first = ReviewResult::SAVE_ERROR;
+    ReviewResult second = ReviewResult::OK;
+
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        ++first_callbacks;
+        first = value;
+    });
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        ++second_callbacks;
+        second = value;
+    });
+
+    CHECK(second == ReviewResult::BUSY);
+    CHECK_EQ(second_callbacks, 1);
+    fake::settle();
+
+    CHECK(first == ReviewResult::OK);
+    CHECK_EQ(first_callbacks, 1);
+    CHECK_EQ(api.saves, 1);
+    CHECK(!s.addon_change_busy());
+}
+
+TEST(stremio_review_logout_cancels_before_save) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    api.use();
+
+    int callbacks = 0;
+    ReviewResult result = ReviewResult::OK;
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        ++callbacks;
+        result = value;
+    });
+    s.logout();
+    fake::settle();
+
+    CHECK(result == ReviewResult::SESSION_CHANGED);
+    CHECK_EQ(callbacks, 1);
+    CHECK_EQ(api.saves, 0);
+    CHECK(!s.logged_in());
+    CHECK(!s.addon_change_busy());
+    CHECK(!s.account_sync_busy());
+}
+
+TEST(stremio_review_failed_save_does_not_report_success) {
+    Stremio s;
+    signed_in(s);
+    ReviewApi api;
+    api.save_success = false;
+    api.use();
+
+    ReviewResult result = ReviewResult::OK;
+    s.change_addon(review_addon(), true, [&](ReviewResult value) {
+        result = value;
+    });
+    fake::settle();
+
+    CHECK(result == ReviewResult::SAVE_ERROR);
+    CHECK_EQ(api.saves, 1);
+    CHECK_EQ(api.collection.size(), (size_t)2);
+    CHECK_EQ(s.addons().size(), (size_t)2);
+    CHECK(!s.addon_change_busy());
+}
+
+TEST(stremio_review_invalid_collection_keeps_local_addons) {
+    Stremio s;
+    signed_in(s);
+    const size_t before = s.addons().size();
+    fake::handler = [](const http::Request &request) {
+        if (ends_with(request.url, "/addonCollectionGet")) {
+            return fake::api_result(R"({"addons":{}})");
+        }
+        return answer(request);
+    };
+
+    s.refresh();
+    fake::settle();
+
+    CHECK_EQ(s.addons().size(), before);
+    CHECK(!s.addons_error().empty());
+    CHECK(!s.account_sync_busy());
+
+    fake::handler = answer;
+    s.refresh();
+    fake::settle();
+
+    CHECK(s.addons_error().empty());
+    CHECK(s.addons_loaded());
+    CHECK(!s.account_sync_busy());
+}
+
+TEST(stremio_review_refresh_coalesces_overlapping_requests) {
+    Stremio s;
+    signed_in(s);
+    fake::requests.clear();
+
+    s.refresh();
+    s.refresh();
+    s.refresh();
+
+    CHECK(s.account_sync_busy());
+    CHECK_EQ(review_request_count("/datastoreGet"), 1);
+    CHECK_EQ(review_request_count("/addonCollectionGet"), 1);
+
+    http::poll();
+
+    CHECK(s.account_sync_busy());
+    CHECK_EQ(review_request_count("/datastoreGet"), 2);
+    CHECK_EQ(review_request_count("/addonCollectionGet"), 2);
+
+    fake::settle();
+
+    CHECK(!s.account_sync_busy());
+    CHECK_EQ(review_request_count("/datastoreGet"), 2);
+    CHECK_EQ(review_request_count("/addonCollectionGet"), 2);
+    CHECK(s.addons_error().empty());
+}
+
+TEST(stremio_review_old_board_answers_are_ignored) {
+    Stremio s;
+    signed_in(s);
+
+    s.refresh();
+    http::poll(); // Completes account sync; leaves board requests pending.
+    CHECK_EQ(s.board().size(), (size_t)2);
+
+    s.refresh(); // Invalidates those pending board responses.
+    fake::handler = [](const http::Request &request) {
+        if (ends_with(request.url, "/catalog/movie/top.json")
+                || ends_with(request.url, "/catalog/series/top.json")) {
+            return fake::json(metas({ "stale-board-item" }));
+        }
+        return answer(request);
+    };
+    http::poll();
+
+    CHECK_EQ(s.board().size(), (size_t)2);
+    for (const BoardRow &row : s.board()) {
+        CHECK(row.items.empty());
+        CHECK(row.loading);
+    }
+
+    fake::handler = answer;
+    fake::settle();
+
+    CHECK(!s.account_sync_busy());
+    CHECK_EQ(s.board()[0].items.size(), (size_t)3);
+    if (!s.board()[0].items.empty()) {
+        CHECK_EQ(s.board()[0].items[0].id, "m1");
+    }
+}
+
+TEST(stremio_review_http_error_preserves_revoked_session_message) {
+    Stremio s;
+    fake::reset();
+    fake::files["/fake/session.json"] =
+        R"({"authKey":"old","user":{"email":"me@example.com"}})";
+    fake::handler = [](const http::Request &request) {
+        if (ends_with(request.url, "/datastoreGet")) {
+            return fake::json(
+                R"({"error":{"code":1,"message":"Session does not exist"}})",
+                401);
+        }
+        return answer(request);
+    };
+
+    s.init();
+    s.refresh();
+    fake::settle();
+
+    CHECK(!s.logged_in());
+    CHECK(!s.account_sync_busy());
+    CHECK(!fake::files.count("/fake/session.json"));
+}
+
+// --- Community add-on search matching ---
+#include "../src/core/addon_search.h"
+
+TEST(stremio_addon_search_name_and_identifier) {
+    CHECK(addon_search::matches("My Streams", "org.example.addon", "streams"));
+    CHECK(addon_search::matches("My Streams", "org.example.addon", "EXAMPLE"));
+    CHECK(!addon_search::matches("My Streams", "org.example.addon", "subtitles"));
+    CHECK(addon_search::matches("My Streams", "org.example.addon", ""));
+}
+
+TEST(stremio_addon_search_spanish_accents) {
+    CHECK(addon_search::matches("Pel\xC3\xAD""culas", "films", "peliculas"));
+    CHECK(addon_search::matches("ESPA\xC3\x91""OL", "language", "espanol"));
+    CHECK(addon_search::matches("M\xC3\x9C""SICA", "audio", "musica"));
+}
+
+TEST(stremio_addon_search_keeps_original_text) {
+    const std::string name = "Community Add-on";
+    const std::string id = "org.Example";
+    CHECK(addon_search::matches(name, id, "COMMUNITY"));
+    CHECK_EQ(name, "Community Add-on");
+    CHECK_EQ(id, "org.Example");
+}
+
+// --- Local QR support for phone-based add-on configuration ---
+#include "../src/core/addon_config.h"
+
+TEST(stremio_addon_config_standard_routes) {
+    CHECK_EQ(
+        addon_config::configure_url("https://addon.example/manifest.json"),
+        "https://addon.example/configure");
+    CHECK_EQ(
+        addon_config::configure_url("https://addon.example/service/manifest.json"),
+        "https://addon.example/service/configure");
+    CHECK_EQ(
+        addon_config::configure_url("http://addon.example/manifest.json"),
+        "http://addon.example/configure");
+}
+
+TEST(stremio_addon_config_rejects_ambiguous_routes) {
+    CHECK(addon_config::configure_url("stremio://addon.example/manifest.json").empty());
+    CHECK(addon_config::configure_url("https:///manifest.json").empty());
+    CHECK(addon_config::configure_url("https://addon.example/manifest.json?key=secret").empty());
+    CHECK(addon_config::configure_url("https://addon.example/manifest.json#fragment").empty());
+    CHECK(addon_config::configure_url("https://user:secret@addon.example/manifest.json").empty());
+    CHECK(addon_config::configure_url("https://addon.example/other.json").empty());
+    CHECK(addon_config::configure_url("https://addon.example/a b/manifest.json").empty());
+}
+
+TEST(stremio_addon_config_qr_is_generated_locally) {
+    const auto code = addon_config::make_qr("https://addon.example/configure");
+    const int size = addon_config::qr_size(code);
+    CHECK(size >= 21 && size <= 177);
+    CHECK(size % 4 == 1);
+    CHECK(addon_config::qr_dark(code, 0, 0));
+    CHECK(addon_config::qr_dark(code, 6, 0));
+    CHECK(addon_config::qr_dark(code, 0, 6));
+    CHECK(!addon_config::qr_dark(code, 1, 1));
+    CHECK(!addon_config::qr_dark(code, -1, 0));
+    CHECK(!addon_config::qr_dark(code, size, 0));
+    CHECK(addon_config::make_qr("").empty());
+    CHECK(addon_config::make_qr(std::string("a\0b", 3)).empty());
+    CHECK(addon_config::make_qr(std::string(10000, 'x')).empty());
+}
+
+TEST(stremio_addon_config_rejects_invalid_qr_buffers) {
+    auto code = addon_config::make_qr("https://addon.example/configure");
+    CHECK(!code.empty());
+    if (code.empty()) return;
+
+    code[0] = 0;
+    CHECK_EQ(addon_config::qr_size(code), 0);
+    CHECK(!addon_config::qr_dark(code, 0, 0));
+
+    code[0] = 22;
+    CHECK_EQ(addon_config::qr_size(code), 0);
+
+    code[0] = 255;
+    CHECK_EQ(addon_config::qr_size(code), 0);
+
+    code.clear();
+    CHECK_EQ(addon_config::qr_size(code), 0);
+}

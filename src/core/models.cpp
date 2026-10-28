@@ -312,7 +312,17 @@ Addon Addon::from_json(const Json &d) {
 	a.transport_url = str(d["transportUrl"]);
 	const Json &m = d["manifest"];
 	a.id = str(m["id"]);
-	a.name = m.has("name") ? str(m["name"]) : a.id;
+    a.name = m.has("name") ? str(m["name"]) : a.id;
+    a.version = str(m["version"]);
+    a.description = str(m["description"]);
+    a.logo = str(m["logo"]);
+    a.descriptor = d;
+    a.addon_catalogs = m["addonCatalogs"];
+    a.is_official = d["flags"]["official"].as_bool(false);
+    a.is_protected = d["flags"]["protected"].as_bool(false);
+    a.configurable = m["behaviorHints"]["configurable"].as_bool(false);
+    a.configuration_required =
+            m["behaviorHints"]["configurationRequired"].as_bool(false);
 	a.types = strings(m["types"]);
 	a.has_id_prefixes = m["idPrefixes"].is_array();
 	a.id_prefixes = strings(m["idPrefixes"]);

@@ -3,6 +3,7 @@
 #include "../core/stremio.h"
 #include "../net/images.h"
 #include "../platform/platform.h"
+#include "i18n.h"
 #include "player_screen.h"
 #include "theme.h"
 
@@ -67,7 +68,8 @@ std::string clean(const std::string &text) {
 // "56 seeders", coloured by how quickly the torrent is likely to start.
 void seeders_badge(int seeders, std::string &text, Color &bg) {
 	if (seeders < 0) return;
-	text = std::to_string(seeders) + (seeders == 1 ? " seeder" : " seeders");
+        text = std::to_string(seeders) + i18n::tr(
+                seeders == 1 ? i18n::Text::SEEDER_SUFFIX : i18n::Text::SEEDERS_SUFFIX);
 	bg = seeders >= 15 ? theme::ACCENT : seeders >= 5 ? theme::WARNING : theme::ERROR;
 }
 
@@ -90,7 +92,7 @@ DetailsScreen::DetailsScreen(Fonts &fonts, Navigator &nav, const Target &target)
 	if (!video_id_.empty()) {
 		load_streams(video_id_);
 	} else {
-		streams_status_ = "Loading episodes\xE2\x80\xA6";
+                streams_status_ = i18n::tr(i18n::Text::LOADING_EPISODES);
 	}
 }
 
@@ -132,7 +134,7 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 	filter_scroll_ = 0;
 	streams_list_ = ListState();
 	streams_loading_ = true;
-	streams_status_ = "Finding streams\xE2\x80\xA6";
+        streams_status_ = i18n::tr(i18n::Text::FINDING_STREAMS);
 	std::weak_ptr<int> alive = alive_;
 	const std::string requested = video_id;
 	stremio().request_streams(target_.type, video_id,
@@ -156,7 +158,7 @@ void DetailsScreen::load_streams(const std::string &video_id) {
 			[this, alive, requested]() {
 				if (alive.expired() || requested != video_id_) return;
 				streams_loading_ = false;
-				if (streams_.empty()) streams_status_ = "No streams found. Install a streaming add-on in Stremio to watch this.";
+                                if (streams_.empty()) streams_status_ = i18n::tr(i18n::Text::NO_STREAMS_FOUND);
 			});
 }
 
@@ -179,7 +181,7 @@ void DetailsScreen::refilter() {
 
 std::vector<float> DetailsScreen::filter_widths() {
 	std::vector<float> w;
-	w.push_back(std::max(chip_min_w(), ui::chip_width(fonts_.body, "All")));
+        w.push_back(std::max(chip_min_w(), ui::chip_width(fonts_.body, i18n::tr(i18n::Text::FILTER_ALL))));
 	for (const std::string &a : addons_) w.push_back(std::max(chip_min_w(), ui::chip_width(fonts_.body, clean(a))));
 	return w;
 }
@@ -209,7 +211,7 @@ void DetailsScreen::toggle_library() {
 	Stremio &s = stremio();
 	if (s.in_library(target_.meta_id)) {
 		s.remove_from_library(target_.meta_id);
-		toast_.show("Removed from your library");
+                toast_.show(i18n::tr(i18n::Text::REMOVED_FROM_LIBRARY));
 		return;
 	}
 	MetaItem meta = meta_;
@@ -220,7 +222,7 @@ void DetailsScreen::toggle_library() {
 		meta.poster = target_.poster;
 	}
 	s.add_to_library(meta);
-	toast_.show("Added to your library");
+        toast_.show(i18n::tr(i18n::Text::ADDED_TO_LIBRARY));
 }
 
 void DetailsScreen::update(double dt, uint32_t pressed) {
@@ -345,7 +347,7 @@ void DetailsScreen::draw_filter(Renderer &r, float x, float y, float w) {
 			const float f = i < filter_focus_.size() ? filter_focus_[i] : 0.0f;
 			const bool inside = cx >= x + box_pad() - 1 && cx + widths[i] <= x + box_w - box_pad() + 1; // only whole chips
 			if (inside && (pass == 0) != (f > 0.5f)) {
-				const std::string label = i == 0 ? "All" : clean(addons_[i - 1]);
+                                const std::string label = i == 0 ? i18n::tr(i18n::Text::FILTER_ALL) : clean(addons_[i - 1]);
 				ui::chip(r, fonts_.body, label, cx, y + box_pad(), widths[i], chip_h(), (int)i == filter_, f, theme::BASE_200);
 			}
 			cx += widths[i];
@@ -374,11 +376,11 @@ void DetailsScreen::draw(Renderer &r) {
 	if (stremio().in_library(target_.meta_id)) {
 		const float bx = MARGIN + info_w + (info.empty() ? 0 : S(20));
 		const float by = y - fonts_.body.size() * 0.36f - ui::badge_height(fonts_.small) / 2;
-		ui::badge(r, fonts_.small, "In library", bx, by, theme::ACCENT, theme::ACCENT_CONTENT);
+                ui::badge(r, fonts_.small, i18n::tr(i18n::Text::IN_LIBRARY), bx, by, theme::ACCENT, theme::ACCENT_CONTENT);
 	}
 	y += S(42);
 	if (!meta_error_.empty() && !has_meta_) {
-		r.text(fonts_.body, "Couldn't load details: " + meta_error_, MARGIN, y, theme::ERROR);
+                r.text(fonts_.body, std::string(i18n::tr(i18n::Text::DETAILS_LOAD_ERROR)) + meta_error_, MARGIN, y, theme::ERROR);
 	}
 	for (const std::string &line : fonts_.body.wrap(description_, S(1150), 3)) {
 		r.text(fonts_.body, line, MARGIN, y, theme::BASE_CONTENT);
@@ -389,7 +391,7 @@ void DetailsScreen::draw(Renderer &r) {
 	float streams_x = MARGIN;
 	if (has_episodes) {
 		const float ew = S(560);
-		r.text(fonts_.section, "Episodes", MARGIN, lists_top(), theme::BASE_CONTENT);
+                r.text(fonts_.section, i18n::tr(i18n::Text::EPISODES), MARGIN, lists_top(), theme::BASE_CONTENT);
 		std::vector<ListRow> rows;
 		int active = -1;
 		for (size_t i = 0; i < meta_.videos.size(); i++) {
@@ -400,7 +402,7 @@ void DetailsScreen::draw(Renderer &r) {
 		streams_x = MARGIN + ew + S(48);
 	}
 
-	std::string title = "Streams";
+        std::string title = i18n::tr(i18n::Text::STREAMS);
 	if (has_meta_ && target_.type == "series") {
 		if (const Video *v = meta_.find_video(video_id_)) title += "  \xC2\xB7  " + clean(MetaItem::video_label(*v));
 	}
@@ -433,8 +435,13 @@ void DetailsScreen::draw(Renderer &r) {
 
 	const bool saved = stremio().in_library(target_.meta_id);
 	ui::hints(r, fonts_.small,
-			{ { "\xC3\x97", filter_focused_ ? "Show streams" : column_ == 0 ? "Episode" : "Play" },
-					{ "\xE2\x96\xB3", saved ? "Remove from library" : "Add to library" }, { "\xE2\x97\x8B", "Back" } },
+                        { { "\xC3\x97", i18n::tr(filter_focused_
+                                ? i18n::Text::SHOW_STREAMS
+                                : column_ == 0 ? i18n::Text::EPISODE : i18n::Text::PLAY) },
+                          { "\xE2\x96\xB3", i18n::tr(saved
+                                ? i18n::Text::REMOVE_FROM_LIBRARY
+                                : i18n::Text::ADD_TO_LIBRARY) },
+                          { "\xE2\x97\x8B", i18n::tr(i18n::Text::BACK) } },
 			MARGIN, H - S(40));
 	toast_.draw(r, fonts_.body, W / 2, H - S(120));
 }

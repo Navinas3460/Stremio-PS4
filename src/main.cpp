@@ -8,6 +8,7 @@
 #include "render/font.h"
 #include "render/renderer.h"
 #include "ui/home_screen.h"
+#include "ui/i18n.h"
 #include "ui/login_screen.h"
 #include "ui/theme.h"
 
@@ -81,6 +82,7 @@ int main() {
 	bool ok = renderer.init(WIDTH, HEIGHT);
 	platform::log("renderer init: %d", ok);
 	theme::load_ui_scale();
+        i18n::load_language();
 	ok = ok && load_fonts(fonts);
 	platform::log("fonts: %d", ok);
 	ok = ok && http::init(HTTP_WORKERS);
